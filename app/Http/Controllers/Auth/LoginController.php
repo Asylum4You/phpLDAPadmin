@@ -5,42 +5,46 @@ namespace App\Http\Controllers\Auth;
 use Illuminate\Foundation\Auth\AuthenticatesUsers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cookie;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use LdapRecord\Auth\BindException;
+use LdapRecord\Container;
 
 use App\Http\Controllers\Controller;
-use App\Providers\RouteServiceProvider;
+use App\Ldap\Entry;
 
 class LoginController extends Controller
 {
-    /*
-    |--------------------------------------------------------------------------
-    | Login Controller
-    |--------------------------------------------------------------------------
-    |
-    | This controller handles authenticating users for the application and
-    | redirecting them to your home screen. The controller uses a trait
-    | to conveniently provide its functionality to your applications.
-    |
-    */
+	/*
+	|--------------------------------------------------------------------------
+	| Login Controller
+	|--------------------------------------------------------------------------
+	|
+	| This controller handles authenticating users for the application and
+	| redirecting them to your home screen. The controller uses a trait
+	| to conveniently provide its functionality to your applications.
+	|
+	*/
 
-    use AuthenticatesUsers;
+	use AuthenticatesUsers;
 
-    /**
-     * Where to redirect users after login.
-     *
-     * @var string
-     */
-    protected $redirectTo = RouteServiceProvider::HOME;
+	/**
+	 * Where to redirect users after login.
+	 *
+	 * @var string
+	 */
+	protected $redirectTo = '/';
 
-    /**
-     * Create a new controller instance.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        $this->middleware('guest')->except('logout');
-    }
+	/**
+	 * Create a new controller instance.
+	 *
+	 * @return void
+	 */
+	public function __construct()
+	{
+		$this->middleware('guest')
+			->except('logout');
+	}
 
 	protected function credentials(Request $request): array
 	{
@@ -48,6 +52,45 @@ class LoginController extends Controller
 			login_attr_name() => $request->get(login_attr_name()),
 			'password' => $request->get('password'),
 		];
+	}
+
+	/**
+	 * When attempt to login
+	 *
+	 * @param Request $request
+	 * @return bool
+	 * @throws \LdapRecord\ConnectionException
+	 * @throws \LdapRecord\ContainerException
+	 */
+	public function attemptLogin(Request $request)
+	{
+		$attempt = $this->guard()->attempt(
+			$this->credentials($request), $request->boolean('remember')
+		);
+
+		// If the login failed, and PLA is set to use DN login, check if the entry exists.
+		// If the entry doesnt exist, it might be the root DN, which cannot be used to login
+		if ((! $attempt) && $request->dn && config('pla.login.alert_rootdn',TRUE)) {
+			// Double check our credentials, and see if they authenticate
+			try {
+				Container::getInstance()
+					->getConnection()
+					->auth()
+					->bind($request->get(login_attr_name()),$request->get('password'));
+
+			} catch (BindException $e) {
+				// Password incorrect, fail anyway
+				return FALSE;
+			}
+
+			$dn = config('server')->fetch($request->dn);
+			$o = new Entry;
+
+			if (! $dn && $o->getConnection()->getLdapConnection()->errNo() === 32)
+				abort(501,'Authentication succeeded, but the DN doesnt exist');
+		}
+
+		return $attempt;
 	}
 
 	/**
@@ -59,17 +102,14 @@ class LoginController extends Controller
 	 */
 	public function logout(Request $request)
 	{
-		// Delete our LDAP authentication cookies
-		Cookie::queue(Cookie::forget('username_encrypt'));
-		Cookie::queue(Cookie::forget('password_encrypt'));
+		$user = Auth::user();
 
 		$this->guard()->logout();
-
 		$request->session()->invalidate();
-
 		$request->session()->regenerateToken();
 
 		if ($response = $this->loggedOut($request)) {
+			Log::info(sprintf('Logged out [%s]',$user->dn));
 			return $response;
 		}
 

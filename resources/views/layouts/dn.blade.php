@@ -1,4 +1,4 @@
-@if (trim($__env->yieldContent('page_title')))
+@if(trim($__env->yieldContent('page_title')))
 	@include('architect::layouts.partials.contentheader')
 @endif
 
@@ -12,3 +12,9 @@
 
 @yield('page-modals')
 @yield('page-scripts')
+@yield('page-styles')
+
+<!-- Initialise any ajax tool tip attributes -->
+<script type="text/javascript">
+	$('[data-bs-toggle="tooltip"]').tooltip();
+</script>

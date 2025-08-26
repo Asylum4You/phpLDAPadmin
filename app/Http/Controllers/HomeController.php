@@ -6,248 +6,91 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Redirect;
-use LdapRecord\Exceptions\InsufficientAccessException;
-use LdapRecord\LdapRecordException;
-use LdapRecord\Query\ObjectNotFoundException;
+use Illuminate\View\View;
 
-use App\Classes\LDAP\{Attribute,Server};
-use App\Classes\LDAP\Import\LDIF as LDIFImport;
-use App\Classes\LDAP\Export\LDIF as LDIFExport;
-use App\Exceptions\Import\{GeneralException,VersionException};
 use App\Exceptions\InvalidUsage;
-use App\Http\Requests\{EntryRequest,ImportRequest};
 use App\Ldap\Entry;
-use App\View\Components\AttributeType;
-use Nette\NotImplementedException;
 
 class HomeController extends Controller
 {
-	private function bases()
-	{
-		$base = Server::baseDNs() ?: collect();
-
-		return $base->transform(function($item) {
-			return [
-				'title'=>$item->getRdn(),
-				'item'=>$item->getDNSecure(),
-				'lazy'=>TRUE,
-				'icon'=>'fa-fw fas fa-sitemap',
-				'tooltip'=>$item->getDn(),
-			];
-		});
-	}
+	private const LOGKEY = 'CHc';
 
 	/**
-	 * Debug Page
-	 *
-	 * @return \Illuminate\Contracts\Foundation\Application|\Illuminate\Contracts\View\Factory|\Illuminate\Contracts\View\View
-	 */
-	public function debug()
-	{
-		return view('debug');
-	}
-
-	/**
-	 * Render a specific DN
+	 * Render a frame, normally as a result of an AJAX call
+	 * This will render the right frame.
 	 *
 	 * @param Request $request
-	 * @return \Illuminate\Contracts\Foundation\Application|\Illuminate\Contracts\View\Factory|\Illuminate\Contracts\View\View
+	 * @param Collection|null $old
+	 * @return View
+	 * @throws InvalidUsage
+	 * @throws \Psr\Container\ContainerExceptionInterface
+	 * @throws \Psr\Container\NotFoundExceptionInterface
 	 */
-	public function dn_frame(Request $request)
+	public function frame(Request $request,?Collection $old=NULL): \Illuminate\View\View
 	{
-		$dn = Crypt::decryptString($request->post('key'));
+		// If our index was not render from a root url, then redirect to it
+		if (($request->root().'/' !== url()->previous()) && $request->method() === 'POST')
+			abort(409);
 
-		$page_actions = collect(['edit'=>TRUE,'copy'=>TRUE]);
+		$key = request_key($request->get('_key',old('_key',old('dn'))));
+		$o = NULL;
 
-		return view('frames.dn')
-			->with('o',config('server')->fetch($dn))
-			->with('dn',$dn)
-			->with('page_actions',$page_actions);
-	}
+		$view = $old
+			? view('frame')->with('subframe',$key['cmd'])
+			: view('frames.'.$key['cmd']);
+		// If we are rendering a DN, rebuild our object
+		if ($key['cmd'] === 'create') {
+			$o = new Entry;
+			$o->setRDNBase($key['dn']);
 
-	public function entry_export(Request $request,string $id)
-	{
-		$dn = Crypt::decryptString($id);
+		} elseif ($key['cmd'] === 'copy_move') {
+			$o = new Entry;
+			$o->setDN($key['dn']);
 
-		$result = (new Entry)
-			->query()
-			//->cache(Carbon::now()->addSeconds(Config::get('ldap.cache.time')))
-			//->select(['*'])
-			->setDn($dn)
-			->recursive()
-			->get();
-
-		return view('fragment.export')
-			->with('result',new LDIFExport($result));
-	}
-
-	public function entry_newattr(string $id)
-	{
-		$x = new AttributeType(new Attribute($id,[]),TRUE);
-		return $x->render();
-	}
-
-	/**
-	 * Show a confirmation to update a DN
-	 *
-	 * @param EntryRequest $request
-	 * @return \Illuminate\Contracts\Foundation\Application|\Illuminate\Contracts\View\Factory|\Illuminate\Contracts\View\View|\Illuminate\Foundation\Application|\Illuminate\Http\RedirectResponse
-	 * @throws ObjectNotFoundException
-	 */
-	public function entry_pending_update(EntryRequest $request)
-	{
-		$dn = Crypt::decryptString($request->dn);
-
-		$o = config('server')->fetch($dn);
-
-		foreach ($request->except(['_token','dn']) as $key => $value)
-			$o->{$key} = array_filter($value);
-
-		if (! $o->getDirty())
-			return back()
-				->withInput()
-				->with('note',__('No attributes changed'));
-
-		return view('update')
-			->with('bases',$this->bases())
-			->with('dn',$dn)
-			->with('o',$o);
-	}
-
-	/**
-	 * Update a DN entry
-	 *
-	 * @param EntryRequest $request
-	 * @return \Illuminate\Http\RedirectResponse
-	 * @throws ObjectNotFoundException
-	 */
-	public function entry_update(EntryRequest $request)
-	{
-		$dn = Crypt::decryptString($request->dn);
-
-		$o = config('server')->fetch($dn);
-
-		foreach ($request->except(['_token','dn']) as $key => $value)
-			$o->{$key} = array_filter($value);
-
-		if (! $dirty=$o->getDirty())
-			return back()
-				->withInput()
-				->with('note',__('No attributes changed'));
-
-		try {
-			$o->update($request->except(['_token','dn']));
-
-		} catch (InsufficientAccessException $e) {
-			$request->flash();
-
-			switch ($x=$e->getDetailedError()->getErrorCode()) {
-				case 50:
-					return Redirect::to('/')
-						->withInput()
-						->withErrors(sprintf('%s: %s (%s)',__('LDAP Server Error Code'),$x,__($e->getDetailedError()->getErrorMessage())));
-
-				default:
-					abort(599,$e->getDetailedError()->getErrorMessage());
-			}
-
-		} catch (LdapRecordException $e) {
-			$request->flash();
-
-			switch ($x=$e->getDetailedError()->getErrorCode()) {
-				case 8:
-					return Redirect::to('/')
-						->withInput()
-						->withErrors(sprintf('%s: %s (%s)',__('LDAP Server Error Code'),$x,__($e->getDetailedError()->getErrorMessage())));
-
-				default:
-					abort(599,$e->getDetailedError()->getErrorMessage());
-			}
+		} elseif ($key['dn']) {
+			// @todo Need to handle if DN is null, for example if the user's session expired and the ACLs dont let them retrieve $key['dn']
+			$o = config('server')->fetch($key['dn']);
 		}
 
-		return Redirect::to('/')
-			->withInput()
-			->with('success',__('Entry updated'))
-			->with('updated',$dirty);
-	}
+		if ($o) {
+			// @note Need to add the objectclass value first, so that subsequent attributes are aware of the objectclasses
+			if ($x=old('objectclass'))
+				$o->objectclass = $x;
 
-	/**
-	 * Application home page
-	 */
-	public function home()
-	{
-		if (old('dn'))
-			return view('frame')
-				->with('subframe','dn')
-				->with('bases',$this->bases())
-				->with('o',config('server')->fetch($dn=Crypt::decryptString(old('dn'))))
-				->with('dn',$dn);
-
-		elseif (old('frame'))
-			return view('frame')
-				->with('subframe',old('frame'))
-				->with('bases',$this->bases());
-
-		else
-			return view('home')
-				->with('bases',$this->bases())
-				->with('server',config('ldap.connections.default.name'));
-	}
-
-	/**
-	 * Process the incoming LDIF file or LDIF text
-	 *
-	 * @param ImportRequest $request
-	 * @param string $type
-	 * @return \Illuminate\Contracts\Foundation\Application|\Illuminate\Contracts\View\Factory|\Illuminate\Contracts\View\View|\Illuminate\Foundation\Application
-	 * @throws GeneralException
-	 * @throws VersionException
-	 */
-	public function import(ImportRequest $request,string $type)
-	{
-		switch ($type) {
-			case 'ldif':
-				$import = new LDIFImport($x=($request->text ?: $request->file->get()));
-				break;
-
-			default:
-				abort(404,'Unknown import type: '.$type);
+			foreach (collect(old())->except(array_merge(EntryController::INTERNAL_POST,['dn','objectclass'])) as $attr => $value)
+				$o->{$attr} = $value;
 		}
 
-		try {
-			$result = $import->process();
+		return match ($key['cmd']) {
+			'create' => $view
+				->with('container',old('container',$key['dn']))
+				->with('o',$o)
+				->with('template',NULL)
+				->with('step',old('_step',1)),
 
-		} catch (NotImplementedException $e) {
-			abort(555,$e->getMessage());
+			'copy_move' => $view
+				->with('dn',$key['dn'])
+				->with('o',$o)
+				->with('template',NULL),
 
-		} catch (\Exception $e) {
-			abort(598,$e->getMessage());
-		}
+			'dn' => $view
+				->with('dn',$key['dn'])
+				->with('o',$o)
+				->with('page_actions',collect([
+					'create'=>($x=($o->getObjects()->except('entryuuid')->count() > 0)),
+					'copy'=>$x,
+					'delete'=>is_null($xx=($o->getObject('hassubordinates') ?: $o->getObject('numSubordinates'))?->value)
+						|| (collect($xx)->filter(fn($item)=>$item !== 'FALSE')->count() === 0),
+					'edit'=>$x,
+					'export'=>$x,
+				]))
+				->with('updated',session()->pull('updated') ?: collect()),
 
-		return view('frame')
-			->with('subframe','import_result')
-			->with('bases',$this->bases())
-			->with('result',$result)
-			->with('ldif',htmlspecialchars($x));
-	}
+			'import' => $view,
 
-	public function import_frame()
-	{
-		return view('frames.import');
-	}
-
-	/**
-	 * LDAP Server INFO
-	 *
-	 * @return \Illuminate\Contracts\Foundation\Application|\Illuminate\Contracts\View\Factory|\Illuminate\Contracts\View\View
-	 */
-	public function info()
-	{
-		return view('frames.info')
-			->with('s',config('server'));
+			default => abort(404),
+		};
 	}
 
 	/**
@@ -255,40 +98,38 @@ class HomeController extends Controller
 	 *
 	 * @note Our route will validate that types are valid.
 	 * @param Request $request
-	 * @return \Illuminate\Contracts\Foundation\Application|\Illuminate\Contracts\View\Factory|\Illuminate\Contracts\View\View
+	 * @return \Illuminate\View\View
 	 * @throws InvalidUsage
 	 */
-	public function schema_frame(Request $request)
+	public function frame_schema(Request $request): \Illuminate\View\View
 	{
-		$s = config('server');
-
 		// If an invalid key, we'll 404
-		if ($request->type && $request->key && ($s->schema($request->type)->has($request->key) === FALSE))
+		if ($request->type && $request->get('_key') && (! config('server')->schema($request->type)->has($request->get('_key'))))
 			abort(404);
 
 		return view('frames.schema')
 			->with('type',$request->type)
-			->with('key',$request->key);
+			->with('key',$request->get('_key'));
 	}
 
 	/**
-	 * Sort the attributes
-	 *
-	 * @param Collection $attrs
-	 * @return Collection
+	 * This is the main page render function
 	 */
-	private function sortAttrs(Collection $attrs): Collection
+	public function home(Request $request): \Illuminate\View\View
 	{
-		return $attrs->sortKeys();
+		// Did we come here as a result of a redirect
+		return count(old())
+			? $this->frame($request,collect(old()))
+			: view('home');
 	}
 
 	/**
 	 * Return the image for the logged in user or anonymous
 	 *
 	 * @param Request $request
-	 * @return mixed
+	 * @return \Illuminate\Http\Response
 	 */
-	public function user_image(Request $request)
+	public function user_image(Request $request): \Illuminate\Http\Response
 	{
 		$image = NULL;
 		$content = NULL;

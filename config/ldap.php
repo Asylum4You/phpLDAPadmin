@@ -13,7 +13,7 @@ return [
 	|
 	*/
 
-	'default' => env('LDAP_CONNECTION', 'default'),
+	'default' => env('LDAP_CONNECTION', 'ldap'),
 
 	/*
 	|--------------------------------------------------------------------------
@@ -28,16 +28,49 @@ return [
 
 	'connections' => [
 
-		'default' => [
+		'ldap' => [
+			'name' => env('LDAP_NAME','LDAP Server'),
 			'hosts' => [env('LDAP_HOST', '127.0.0.1')],
 			'username' => env('LDAP_USERNAME', 'cn=user,dc=local,dc=com'),
 			'password' => env('LDAP_PASSWORD', 'secret'),
 			'port' => env('LDAP_PORT', 389),
-			'base_dn' => env('LDAP_BASE_DN', 'dc=local,dc=com'),
 			'timeout' => env('LDAP_TIMEOUT', 5),
 			'use_ssl' => env('LDAP_SSL', false),
 			'use_tls' => env('LDAP_TLS', false),
-			'name' => env('LDAP_NAME','LDAP Server'),
+			'use_sasl' => env('LDAP_SASL', false),
+			'sasl_options' => [
+				// 'mech' => 'GSSAPI',
+			],
+		],
+
+		'ldaps' => [
+			'name' => env('LDAP_NAME','LDAPS Server'),
+			'hosts' => [env('LDAP_HOST', '127.0.0.1')],
+			'username' => env('LDAP_USERNAME', 'cn=user,dc=local,dc=com'),
+			'password' => env('LDAP_PASSWORD', 'secret'),
+			'port' => env('LDAP_PORT', 636),
+			'timeout' => env('LDAP_TIMEOUT', 5),
+			'use_ssl' => env('LDAP_SSL', true),
+			'use_tls' => env('LDAP_TLS', false),
+			'use_sasl' => env('LDAP_SASL', false),
+			'sasl_options' => [
+				// 'mech' => 'GSSAPI',
+			],
+		],
+
+		'starttls' => [
+			'name' => env('LDAP_NAME','LDAP-TLS Server'),
+			'hosts' => [env('LDAP_HOST', '127.0.0.1')],
+			'username' => env('LDAP_USERNAME', 'cn=user,dc=local,dc=com'),
+			'password' => env('LDAP_PASSWORD', 'secret'),
+			'port' => env('LDAP_PORT', 389),
+			'timeout' => env('LDAP_TIMEOUT', 5),
+			'use_ssl' => env('LDAP_SSL', false),
+			'use_tls' => env('LDAP_TLS', true),
+			'use_sasl' => env('LDAP_SASL', false),
+			'sasl_options' => [
+				// 'mech' => 'GSSAPI',
+			],
 		],
 
 	],
@@ -53,7 +86,11 @@ return [
 	|
 	*/
 
-	'logging' => env('LDAP_LOGGING', true),
+	'logging' => [
+		'enabled' => env('LDAP_LOGGING', false),
+		'channel' => env('LOG_CHANNEL', 'stack'),
+		'level' => env('LOG_LEVEL', 'info'),
+	],
 
 	/*
 	|--------------------------------------------------------------------------
@@ -72,56 +109,9 @@ return [
 		'time' => env('LDAP_CACHE_TIME',5*60),		// Seconds
 	],
 
-	/*
-	 |--------------------------------------------------------------------------
-	 | Support for attrs display order
-	 |--------------------------------------------------------------------------
-	 |
-	 | Use this array if you want to have your attributes displayed in a specific
-	 | order. Case is not important.
-	 |
-	 | For example, "sn" will be displayed right after "givenName". All the other
-	 | attributes that are not specified in this array will be displayed after in
-	 | alphabetical order.
-	 |
-	 */
-
-	'attr_display_order' => [],
-	/*
-	'attr_display_order' => [
-		'givenName',
-		'sn',
-		'cn',
-		'displayName',
-		'uid',
-		'uidNumber',
-		'gidNumber',
-		'homeDirectory',
-		'mail',
-		'userPassword'
+	'attrtags' => [
+		'only_binary' => explode(',',strtolower(env('LDAP_ATTRTAG_BINARY_ONLY', 'userCertificate'))),
 	],
-	*/
-
-	/*
-	 * If 'login,attr' is used above such that phpLDAPadmin will search for your DN
-	 * at login, you may restrict the search to a specific objectClasses. EG, set this
-	 * to array('posixAccount') or array('inetOrgPerson',..), depending upon your
-	 * setup.
-	 */
-	'login' => [
-		'attr' => [env('LDAP_LOGIN_ATTR','uid') => env('LDAP_LOGIN_ATTR_DESC','User ID')],	// Attribute used to find user for login
-		'objectclass' => explode(',',env('LDAP_LOGIN_OBJECTCLASS', 'posixAccount')),		// Objectclass that users must contain to login
-	],
-
-	/*
-	 |--------------------------------------------------------------------------
-	 | Custom Date Format
-	 |--------------------------------------------------------------------------
-	 |
-	 | Configuration to determine how date fields will be displayed.
-	 |
-	 */
-	'datetime_format' => 'Y-m-d H:i:s',
 
 	/*
 	 |--------------------------------------------------------------------------
@@ -132,45 +122,75 @@ return [
 	 |
 	 */
 	'validation' => [
+		'cacertificate' => [
+			'cacertificate.*'=> [
+				'sometimes',
+				'max:1'
+			],
+			'cacertificate.binary.*' => [
+				'required',
+				new \App\Rules\CertificateIsBinary,
+			],
+		],
 		'objectclass' => [
-			'objectclass'=>[
-				'array',
-				'min:1'
+			'objectclass.*'=>[
+				new \App\Rules\HasStructuralObjectClass,
 			]
 		],
 		'gidnumber' => [
-			'gidnumber'=> [
+			'gidnumber.*' => [
 				'sometimes',
-				'array',
 				'max:1'
 			],
-			'gidnumber.*' => [
+			'gidnumber.*.*' => [
 				'nullable',
 				'integer',
 				'max:65535'
 			]
 		],
 		'mail' => [
-			'mail'=>[
+			'mail.*'=>[
 				'sometimes',
-				'array','min:1'
+				'min:1'
 			],
-			'mail.*' => [
+			'mail.*.*' => [
 				'nullable',
 				'email'
 			]
 		],
-		'uidnumber' => [
-			'uidnumber' => [
+		'userpassword' => [
+			'userpassword.*' => [
 				'sometimes',
-				'array',
+				'min:1'
+			],
+			sprintf('userpassword.%s%s.*',\App\Ldap\Entry::TAG_NOTAG,\App\Ldap\Entry::TAG_HELPER) => [
+				'nullable',
+				'min:4'
+			],
+			sprintf('userpassword.%s.*',\App\Ldap\Entry::TAG_NOTAG) => [
+				'nullable',
+				'min:8'
+			]
+		],
+		'uidnumber' => [
+			'uidnumber.*' => [
+				'sometimes',
 				'max:1'
 			],
-			'uidnumber.*' => [
+			'uidnumber.*.*' => [
 				'nullable',
 				'integer',
 				'max:65535'
 			]
+		],
+		'usercertificate' => [
+			'usercertificate.*'=> [
+				'sometimes',
+				'max:1'
+			],
+			'usercertificate.binary.*' => [
+				new \App\Rules\CertificateIsBinary,
+			],
 		],
 	],
 ];

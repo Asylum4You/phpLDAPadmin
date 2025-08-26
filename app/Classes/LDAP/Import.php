@@ -3,9 +3,10 @@
 namespace App\Classes\LDAP;
 
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
+use LdapRecord\LdapRecordException;
 
 use App\Exceptions\Import\GeneralException;
-use App\Exceptions\Import\ObjectExistsException;
 use App\Ldap\Entry;
 
 /**
@@ -16,6 +17,8 @@ use App\Ldap\Entry;
  */
 abstract class Import
 {
+	private const LOGKEY = 'aI-';
+
 	// Valid LDIF commands
 	protected const LDAP_IMPORT_ADD = 1;
 	protected const LDAP_IMPORT_DELETE = 2;
@@ -48,27 +51,46 @@ abstract class Import
 	 * @param int $action
 	 * @return Collection
 	 * @throws GeneralException
-	 * @throws ObjectExistsException
 	 */
 	final protected function commit(Entry $o,int $action): Collection
 	{
 		switch ($action) {
 			case static::LDAP_IMPORT_ADD:
+			case static::LDAP_IMPORT_MODIFY:
 				try {
 					$o->save();
 
-				} catch (\Exception $e) {
-					return collect([
-						'dn'=>$o->getDN(),
-						'result'=>sprintf('%d: %s (%s)',
-							($x=$e->getDetailedError())->getErrorCode(),
-							$x->getErrorMessage(),
-							$x->getDiagnosticMessage(),
-						)
-					]);
+				} catch (LdapRecordException $e) {
+					Log::error(sprintf('%s:Import Commit Error',self::LOGKEY),['e'=>$e->getMessage(),'detailed'=>$e->getDetailedError()]);
+
+					if ($e->getDetailedError())
+						return collect([
+							'dn'=>$o->getDN(),
+							'link'=>$o->getDNSecure(),
+							'result'=>sprintf('%d: %s%s',
+								($x=$e->getDetailedError())->getErrorCode(),
+								$x->getErrorMessage(),
+								$x->getDiagnosticMessage() ? ' ('.$x->getDiagnosticMessage().')' : '',
+							)
+						]);
+					else
+						return collect([
+							'dn'=>$o->getDN(),
+							'link'=>$o->getDNSecure(),
+							'result'=>sprintf('%d: %s',
+								$e->getCode(),
+								$e->getMessage(),
+							)
+						]);
 				}
 
-				return collect(['dn'=>$o->getDN(),'result'=>__('Created')]);
+				Log::debug(sprintf('%s:= Import Commited',self::LOGKEY));
+
+				return collect([
+					'dn'=>$o->getDN(),
+					'link'=>$o->getDNSecure(),
+					'result'=>$action === self::LDAP_IMPORT_ADD ? __('Created') : __('Modified'),
+				]);
 
 			default:
 				throw new GeneralException('Unhandled action during commit: '.$action);

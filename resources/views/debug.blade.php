@@ -24,7 +24,7 @@
 						<td>BaseDN(s)</td>
 						<td>
 							<table class="table table-sm table-borderless">
-								@foreach(\App\Classes\LDAP\Server::baseDNs()->sort(function($item) { return $item->sortKey; }) as $item)
+								@foreach($server->baseDNs() as $item)
 									<tr>
 										<td class="ps-0">{{ $item->getDn() }}</td>
 									</tr>
@@ -36,7 +36,19 @@
 					<!-- Schema DN -->
 					<tr>
 						<td>Schema DN</td>
-						<td>{{ \App\Classes\LDAP\Server::schemaDN() }}</td>
+						<td>{{ $server->schemaDN() }}</td>
+					</tr>
+
+					<!-- Schema DN -->
+					<tr>
+						<td>Root URL</td>
+						<td>{{ request()->root() }}</td>
+					</tr>
+
+					<!-- Locale -->
+					<tr>
+						<td>Locale</td>
+						<td>{{ __('locale') }} [{{ config('app.locale') }}]</td>
 					</tr>
 					</tbody>
 				</table>

@@ -3,8 +3,8 @@
 @section('page_title')
 	<table class="table table-borderless">
 		<tr>
-			<td style="border-radius: 5px;"><div class="page-title-icon f32"><i class="fas fa-upload"></i></div></td>
-			<td class="top text-start align-text-top p-0 pt-2"><strong>@lang('LDIF Import')</strong><br><small>To Server XXX</small></td>
+			<td><div class="page-title-icon f32"><i class="fas fa-upload"></i></div></td>
+			<td class="top text-start align-text-top p-2"><strong>@lang('LDIF Import')</strong><br><small>@lang('To Server') <strong>{{ $server->name }}</strong></small></td>
 		</tr>
 	</table>
 @endsection
@@ -13,9 +13,9 @@
 	<div class="row">
 		<div class="offset-1 col-10">
 			<div class="main-card mb-3 card">
-				<form id="import-form" action="{{ url('import/process/ldif') }}" method="POST" enctype="multipart/form-data">
+				<form id="import-form" action="{{ url('entry/import/process/ldif') }}" method="POST" enctype="multipart/form-data">
 					@csrf
-					<input type="hidden" name="frame" value="import">
+					<input type="hidden" name="_key" value="{{ Crypt::encryptString('*import|_NOP') }}">
 
 					<div class="card-header">
 						@lang('LDIF Import')
@@ -43,6 +43,7 @@
 									<label for="ldif-file" class="pb-2"><strong>@lang('Or upload LDIF file')</strong></label><br>
 									<input type="file" class="form-control-file @error('file') is-invalid @enderror" name="file" accept=".ldif"><br>
 									<small class="form-text text-muted @error('file') is-invalid @enderror">@lang('Maximum file size') <strong>{{ ini_get('upload_max_filesize') }}</strong></small>
+
 									<div class="invalid-feedback pb-2">
 										@error('file')
 											{{ $message }}
@@ -52,13 +53,13 @@
 							</div>
 						</div>
 					</div>
-
-					<div class="card-footer">
-						<span class="ms-auto">
-							<button type="submit" class="btn btn-success btn-sm">Process</button>
-						</span>
-					</div>
 				</form>
+
+				<div class="card-footer">
+					<span class="ms-auto">
+						<x-form.submit :action="__('Process')" form="import-form"/>
+					</span>
+				</div>
 			</div>
 		</div>
 	</div>

@@ -13,32 +13,43 @@ function expandChildren(node) {
 
 function getNode(item) {
 	$.ajax({
-		url: '/dn',
+		url: '/frame',
 		method: 'POST',
-		data: { key: item },
+		data: { _key: item },
 		dataType: 'html',
 		beforeSend: function() {
-			content = $('.main-content').contents();
-			$('.main-content').empty().append('<div class="fa-3x"><i class="fas fa-spinner fa-pulse"></i></div>');
+			content = $('.main-content')
+				.contents();
+
+			$('.main-content')
+				.empty()
+				.append('<div class="fa-3x"><i class="fas fa-spinner fa-pulse"></i></div>');
 		}
 
 	}).done(function(html) {
-		$('.main-content').empty().append(html);
+		$('.main-content')
+			.empty()
+			.append(html);
 
-	}).fail(function(item) {
-		switch(item.status) {
+	}).fail(function(e) {
+		switch(e.status) {
 			case 404:
-				$('.main-content').empty().append(item.responseText);
+				$('.main-content').empty().append(e.responseText);
 				break;
-			case 419:
-				alert('Session has expired, reloading the page and try again...');
-				location.reload();
+			case 409:	// Not in root
+			case 419:	// Session Expired
+				location.replace('/#'+item);
+				// When the session expires, and we are in the tree, we need to force a reload
+				if (location.pathname === '/')
+					location.reload();
 				break;
 			case 500:
-				$('.main-content').empty().append(item.responseText);
+			case 555:	// Missing Method
+				$('.main-content').empty().append(e.responseText);
 				break;
+
 			default:
-				alert(item.status+': Well that didnt work?');
+				alert('Well that didnt work? Code ['+e.status+']');
 		}
 	});
 }
@@ -48,25 +59,21 @@ $(document).ready(function() {
 	if (typeof basedn !== 'undefined') {
 		sources = basedn;
 	} else {
-		sources = { url: 'api/bases' };
+		sources = { method: 'POST', url: '/ajax/bases' };
 	}
 
 	// Attach the fancytree widget to an existing <div id="tree"> element
 	// and pass the tree options as an argument to the fancytree() function:
 	$('#tree').fancytree({
-		clickFolderMode: 3,
-		extensions: ['glyph','persist'],
+		clickFolderMode: 3,	// 1:activate, 2:expand, 3:activate and expand, 4:activate (dblclick expands)
+		extensions: ['persist'],
 		autoCollapse: true, // Automatically collapse all siblings, when a node is expanded.
 		autoScroll: true, // Automatically scroll nodes into visible area.
 		focusOnSelect: true, // Set focus when node is checked by a mouse click
-		glyph: {
-			preset: 'bootstrap3',	// @todo look at changing this to awesome5
-			map: {}
-		},
 		persist: {
 			// Available options with their default:
 			cookieDelimiter: '~',    // character used to join key strings
-			cookiePrefix: undefined, // 'fancytree-<treeId>-' by default
+			cookiePrefix: 'pla-<treeId>-', // 'fancytree-<treeId>-' by default
 			cookie: { // settings passed to jquery.cookie plugin
 				raw: false,
 				expires: '',
@@ -76,20 +83,21 @@ $(document).ready(function() {
 			},
 			expandLazy: true, // true: recursively expand and load lazy nodes
 			expandOpts: undefined, // optional `opts` argument passed to setExpanded()
+			fireActivate: false, //
 			overrideSource: true,  // true: cookie takes precedence over `source` data attributes.
 			store: 'auto',     // 'cookie': use cookie, 'local': use localStore, 'session': use sessionStore
 			types: 'active expanded focus selected'  // which status types to store
 		},
 		click: function(event,data) {
-			if (data.targetType == 'title') {
+			if (data.targetType === 'title' && data.node.data.item)
 				getNode(data.node.data.item);
-			}
 		},
 		source: sources,
 		lazyLoad: function(event,data) {
 			data.result = {
-				url: '/api/children',
-				data: {key: data.node.data.item,depth: 1}
+				method: 'POST',
+				url: '/ajax/children',
+				data: {_key: data.node.data.item,create: true}
 			};
 
 			expandChildren(data.tree.rootNode);
@@ -101,9 +109,6 @@ $(document).ready(function() {
 					data.node.toggleExpanded();
 					break;
 			}
-		},
-		restore: function(event,data) {
-			//getNode(data.tree.getActiveNode().data.item);
 		}
 	});
 });

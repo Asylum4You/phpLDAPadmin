@@ -6,286 +6,75 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
+use App\Classes\LDAP\Attribute;
+use App\Exceptions\InvalidUsage;
+use App\Ldap\Entry;
+
 /**
  * Represents an LDAP AttributeType
- *
- * @package phpLDAPadmin
- * @subpackage Schema
  */
-final class AttributeType extends Base {
-	// The attribute from which this attribute inherits (if any)
-	private ?string $sup_attribute = NULL;
+final class AttributeType extends Base
+{
+	private const LOGKEY = 'SAT';
 
-	// Array of AttributeTypes which inherit from this one
-	private Collection $children;
+	// An array of AttributeTypes which inherit from this one
+	private(set) Collection $children;
 
 	// The equality rule used
-	private ?string $equality = NULL;
-
-	// The ordering of the attributeType
-	private ?string $ordering = NULL;
-
-	// Supports substring matching?
-	private ?string $sub_str_rule = NULL;
-
-	// The full syntax string, ie 1.2.3.4{16}
-	private ?string $syntax = NULL;
-	private ?string $syntax_oid = NULL;
-
-	// boolean: is single valued only?
-	private bool $is_single_value = FALSE;
-
-	// boolean: is collective?
-	private bool $is_collective = FALSE;
-
-	// boolean: can use modify?
-	private bool $is_no_user_modification = FALSE;
-
-	// The usage string set by the LDAP schema
-	private ?string $usage = NULL;
-
-	// An array of alias attribute names, strings
-	private Collection $aliases;
-
-	// The max number of characters this attribute can be
-	private ?int $max_length = NULL;
-
-	// A string description of the syntax type (taken from the LDAPSyntaxes)
-	/**
-	 * @deprecated - reference syntaxes directly if possible
-	 * @var string
-	 */
-	private ?string $type = NULL;
-
-	// An array of objectClasses which use this attributeType (must be set by caller)
-	private Collection $used_in_object_classes;
-
-	// A list of object class names that require this attribute type.
-	private Collection $required_by_object_classes;
+	private(set) ?string $equality = NULL;
 
 	// This attribute has been forced a MAY attribute by the configuration.
-	private bool $forced_as_may = FALSE;
+	private(set) bool $forced_as_may = FALSE;
 
-	/**
-	 * Creates a new AttributeType object from a raw LDAP AttributeType string.
-	 *
-	 * eg: ( 2.5.4.0 NAME 'objectClass' DESC 'RFC4512: object classes of the entity' EQUALITY objectIdentifierMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.38 )
-	 */
-	public function __construct(string $line) {
-		Log::debug(sprintf('Parsing AttributeType [%s]',$line));
+	// boolean: is collective?
+	private(set) bool $is_collective = FALSE;
 
-		parent::__construct($line);
+	// Is this a must attribute
+	private(set) bool $is_must = FALSE;
 
-		$strings = preg_split('/[\s,]+/',$line,-1,PREG_SPLIT_DELIM_CAPTURE);
+	// boolean: can use modify?
+	private(set) bool $is_no_user_modification = FALSE;
 
-		// Init
-		$this->children = collect();
-		$this->aliases = collect();
-		$this->used_in_object_classes = collect();
-		$this->required_by_object_classes = collect();
+	// boolean: is single valued only?
+	private(set) bool $is_single_value = FALSE;
 
-		for ($i=0; $i < count($strings); $i++) {
-			switch ($strings[$i]) {
-				case '(':
-				case ')':
-					break;
+	// The max number of characters this attribute can be
+	private(set) ?int $max_length = NULL;
 
-				case 'NAME':
-					// @note Some schema's return a (' instead of a ( '
-					if ($strings[$i+1] != '(' && ! preg_match('/^\(/',$strings[$i+1])) {
-						do {
-							$this->name .= (strlen($this->name) ? ' ' : '').$strings[++$i];
+	// An array of names (including aliases) that this attribute is known by
+	private(set) Collection $names;
 
-						} while (! preg_match("/\'$/s",$strings[$i]));
+	// The ordering of the attributeType
+	private(set) ?string $ordering = NULL;
 
-						// This attribute has no aliases
-						//$this->aliases = collect();
+	// A list of object class names that require this attribute type.
+	private(set) Collection $required_by_object_classes;
 
-					} else {
-						$i++;
+	// Which objectclass is defining this attribute for an Entry
+	public ?string $source = NULL;
 
-						do {
-							// In case we came here becaues of a ('
-							if (preg_match('/^\(/',$strings[$i]))
-								$strings[$i] = preg_replace('/^\(/','',$strings[$i]);
-							else
-								$i++;
+	// Supports substring matching?
+	private(set) ?string $sub_str_rule = NULL;
 
-							$this->name .= (strlen($this->name) ? ' ' : '').$strings[++$i];
+	// The attribute from which this attribute inherits (if any)
+	private(set) ?string $sup_attribute = NULL;
 
-						} while (! preg_match("/\'$/s",$strings[$i]));
+	// The full syntax string, ie 1.2.3.4{16}
+	private(set) ?string $syntax = NULL;
+	private(set) ?string $syntax_oid = NULL;
 
-						// Add alias names for this attribute
-						while ($strings[++$i] != ')') {
-							$alias = $strings[$i];
-							$alias = preg_replace("/^\'(.*)\'$/",'$1',$alias);
-							$this->addAlias($alias);
-						}
-					}
+	// The usage string set by the LDAP schema
+	private(set) ?string $usage = NULL;
 
-					$this->name = preg_replace("/^\'(.*)\'$/",'$1',$this->name);
-
-					Log::debug(sprintf('- Case NAME returned (%s)',$this->name),['aliases'=>$this->aliases]);
-					break;
-
-				case 'DESC':
-					do {
-						$this->description .= (strlen($this->description) ? ' ' : '').$strings[++$i];
-
-					} while (! preg_match("/\'$/s",$strings[$i]));
-
-					$this->description = preg_replace("/^\'(.*)\'$/",'$1',$this->description);
-
-					Log::debug(sprintf('- Case DESC returned (%s)',$this->description));
-					break;
-
-				case 'OBSOLETE':
-					$this->is_obsolete = TRUE;
-
-					Log::debug(sprintf('- Case OBSOLETE returned (%s)',$this->is_obsolete));
-					break;
-
-				case 'SUP':
-					$i++;
-					$this->sup_attribute = preg_replace("/^\'(.*)\'$/",'$1',$strings[$i]);
-
-					Log::debug(sprintf('- Case SUP returned (%s)',$this->sup_attribute));
-					break;
-
-				case 'EQUALITY':
-					$this->equality = $strings[++$i];
-
-					Log::debug(sprintf('- Case EQUALITY returned (%s)',$this->equality));
-					break;
-
-				case 'ORDERING':
-					$this->ordering = $strings[++$i];
-
-					Log::debug(sprintf('- Case ORDERING returned (%s)',$this->ordering));
-					break;
-
-				case 'SUBSTR':
-					$this->sub_str_rule = $strings[++$i];
-
-					Log::debug(sprintf('- Case SUBSTR returned (%s)',$this->sub_str_rule));
-					break;
-
-				case 'SYNTAX':
-					$this->syntax = $strings[++$i];
-					$this->syntax_oid = preg_replace('/{\d+}$/','',$this->syntax);
-					Log::debug(sprintf('/ Evaluating SYNTAX returned (%s) [%s]',$this->syntax,$this->syntax_oid));
-
-					// Does this SYNTAX string specify a max length (ie, 1.2.3.4{16})
-					$m = [];
-					if (preg_match('/{(\d+)}$/',$this->syntax,$m))
-						$this->max_length = $m[1];
-					else
-						$this->max_length = NULL;
-
-					if ($i < count($strings) - 1 && $strings[$i+1] == '{')
-						do {
-							$this->name .= ' '.$strings[++$i];
-						} while ($strings[$i] != '}');
-
-					$this->syntax = preg_replace("/^\'(.*)\'$/",'$1',$this->syntax);
-					$this->syntax_oid = preg_replace("/^\'(.*)\'$/",'$1',$this->syntax_oid);
-
-					Log::debug(sprintf('- Case SYNTAX returned (%s) [%s] {%d}',$this->syntax,$this->syntax_oid,$this->max_length));
-					break;
-
-				case 'SINGLE-VALUE':
-					$this->is_single_value = TRUE;
-
-					Log::debug(sprintf('- Case SINGLE-VALUE returned (%s)',$this->is_single_value));
-					break;
-
-				case 'COLLECTIVE':
-					$this->is_collective = TRUE;
-
-					Log::debug(sprintf('- Case COLLECTIVE returned (%s)',$this->is_collective));
-					break;
-
-				case 'NO-USER-MODIFICATION':
-					$this->is_no_user_modification = TRUE;
-
-					Log::debug(sprintf('- Case NO-USER-MODIFICATION returned (%s)',$this->is_no_user_modification));
-					break;
-
-				case 'USAGE':
-					$this->usage = $strings[++$i];
-
-					Log::debug(sprintf('- Case USAGE returned (%s)',$this->usage));
-					break;
-
-				// @note currently not captured
-				case 'X-ORDERED':
-					Log::error(sprintf('- Case X-ORDERED returned (%s)',$strings[++$i]));
-					break;
-
-				// @note currently not captured
-				case 'X-ORIGIN':
-					$value = '';
-
-					do {
-						$value .= (strlen($value) ? ' ' : '').$strings[++$i];
-
-					} while (! preg_match("/\'$/s",$strings[$i]));
-
-					Log::error(sprintf('- Case X-ORIGIN returned (%s)',$value));
-					break;
-
-				default:
-					if (preg_match('/[\d\.]+/i',$strings[$i]) && ($i === 1)) {
-						$this->oid = $strings[$i];
-						Log::debug(sprintf('- Case default returned (%s)',$this->oid));
-
-					} elseif ($strings[$i])
-						Log::alert(sprintf('! Case default discovered a value NOT parsed (%s)',$strings[$i]),['line'=>$line]);
-			}
-		}
-	}
-
-	public function __clone()
-	{
-		// When we clone, we need to break the reference too
-		$this->aliases = clone $this->aliases;
-	}
+	// An array of objectClasses which use this attributeType (must be set by caller)
+	private(set) Collection $used_in_object_classes;
 
 	public function __get(string $key): mixed
 	{
-		switch ($key) {
-			case 'aliases': return $this->aliases;
-			case 'children': return $this->children;
-			case 'forced_as_may': return $this->forced_as_may;
-			case 'is_collective': return $this->is_collective;
-			case 'is_editable': return ! $this->is_no_user_modification;
-			case 'is_no_user_modification': return $this->is_no_user_modification;
-			case 'is_single_value': return $this->is_single_value;
-			case 'equality': return $this->equality;
-			case 'max_length': return $this->max_length;
-			case 'ordering': return $this->ordering;
-			case 'required_by_object_classes': return $this->required_by_object_classes;
-			case 'sub_str_rule': return $this->sub_str_rule;
-			case 'sup_attribute': return $this->sup_attribute;
-			case 'syntax': return $this->syntax;
-			case 'syntax_oid': return $this->syntax_oid;
-			case 'type': return $this->type;
-			case 'usage': return $this->usage;
-			case 'used_in_object_classes': return $this->used_in_object_classes;
-			case 'validation': return Arr::get(config('ldap.validation'),$this->name_lc);
-
-			default: return parent::__get($key);
-		}
-	}
-
-	/**
-	 * Adds an attribute name to the alias array.
-	 *
-	 * @param string $alias The name of a new attribute to add to this attribute's list of aliases.
-	 */
-	public function addAlias(string $alias): void
-	{
-		$this->aliases->push($alias);
+		return match ($key) {
+			'names_lc' => $this->names->map('strtolower'),
+			default => parent::__get($key)
+		};
 	}
 
 	/**
@@ -296,7 +85,8 @@ final class AttributeType extends Base {
 	 */
 	public function addChild(string $child): void
 	{
-		$this->children->push($child);
+		$this->children
+			->push($child);
 	}
 
 	/**
@@ -304,11 +94,12 @@ final class AttributeType extends Base {
 	 * that is the list of objectClasses which must have this attribute.
 	 *
 	 * @param string $name The name of the objectClass to add.
+	 * @param bool $structural
 	 */
-	public function addRequiredByObjectClass(string $name): void
+	public function addRequiredByObjectClass(string $name,bool $structural): void
 	{
-		if ($this->required_by_object_classes->search($name) === FALSE)
-			$this->required_by_object_classes->push($name);
+		if (! $this->required_by_object_classes->has($name))
+			$this->required_by_object_classes->put($name,$structural);
 	}
 
 	/**
@@ -316,252 +107,176 @@ final class AttributeType extends Base {
 	 * that is the list of objectClasses which provide this attribute.
 	 *
 	 * @param string $name The name of the objectClass to add.
+	 * @param bool $structural
 	 */
-	public function addUsedInObjectClass(string $name): void
+	public function addUsedInObjectClass(string $name,bool $structural): void
 	{
-		if ($this->used_in_object_classes->search($name) === FALSE)
-			$this->used_in_object_classes->push($name);
+		if (! $this->used_in_object_classes->has($name))
+			$this->used_in_object_classes->put($name,$structural);
 	}
 
 	/**
-	 * Gets the names of attributes that are an alias for this attribute (if any).
+	 * For a list of object classes return all parent object classes as well
 	 *
-	 * @return Collection An array of names of attributes which alias this attribute or
-	 *          an empty array if no attribute aliases this object.
-	 * @deprecated use class->aliases
-	 */
-	public function getAliases(): Collection
-	{
-		return $this->aliases;
-	}
-
-	/**
-	 * Gets this attribute's equality string
-	 *
-	 * @return string
-	 * @deprecated use $this->equality
-	 */
-	public function getEquality()
-	{
-		return $this->equality;
-	}
-
-	/**
-	 * Gets whether this attribute is collective.
-	 *
-	 * @return boolean Returns TRUE if this attribute is collective and FALSE otherwise.
-	 * @deprecated use $this->is_collective
-	 */
-	public function getIsCollective(): bool
-	{
-		return $this->is_collective;
-	}
-
-	/**
-	 * Gets whether this attribute is not modifiable by users.
-	 *
-	 * @return boolean Returns TRUE if this attribute is not modifiable by users.
-	 * @deprecated use $this->is_no_user_modification
-	 */
-	public function getIsNoUserModification(): bool
-	{
-		return $this->is_no_user_modification;
-	}
-
-	/**
-	 * Gets whether this attribute is single-valued. If this attribute only supports single values, TRUE
-	 * is returned. If this attribute supports multiple values, FALSE is returned.
-	 *
-	 * @return boolean Returns TRUE if this attribute is single-valued or FALSE otherwise.
-	 * @deprecated use class->is_single_value
-	 */
-	public function getIsSingleValue(): bool
-	{
-		return $this->is_single_value;
-	}
-
-	/**
-	 * Gets this attribute's the maximum length. If no maximum is defined by the LDAP server, NULL is returned.
-	 *
-	 * @return int The maximum length (in characters) of this attribute or NULL if no maximum is specified.
-	 * @deprecated use $this->max_length;
-	 */
-	public function getMaxLength()
-	{
-		return $this->max_length;
-	}
-
-	/**
-	 * Gets this attribute's ordering specification.
-	 *
-	 * @return string
-	 * @deprecated use $this->ordering
-	 */
-	public function getOrdering(): string
-	{
-		return $this->ordering;
-	}
-
-	/**
-	 * Gets the list of "required by" objectClasses, that is the list of objectClasses
-	 * which provide must have attribute.
-	 *
-	 * @return array An array of names of objectclasses (strings) which provide this attribute
-	 */
-	public function getRequiredByObjectClasses() {
-		if (DEBUG_ENABLED && (($fargs=func_get_args())||$fargs='NOARGS'))
-			debug_log('Entered (%%)',9,1,__FILE__,__LINE__,__METHOD__,$fargs,$this->required_by_object_classes);
-
-		return $this->required_by_object_classes;
-	}
-	/**
-	 * Gets this attribute's substring matching specification
-	 *
-	 * @return string
-	 * @deprecated use $this->sub_str_rule;
-	 */
-	public function getSubstr() {
-		return $this->sub_str_rule;
-	}
-
-	/**
-	 * Gets this attribute's parent attribute (if any). If this attribute does not
-	 * inherit from another attribute, NULL is returned.
-	 *
-	 * @return string
-	 * @deprecated use $class->sup_attribute directly
-	 */
-	public function getSupAttribute() {
-		return $this->sup_attribute;
-	}
-
-	/**
-	 * Gets this attribute's syntax OID. Differs from getSyntaxString() in that this
-	 * function only returns the actual OID with any length specification removed.
-	 * Ie, if the syntax string is "1.2.3.4{16}", this function only retruns
-	 * "1.2.3.4".
-	 *
-	 * @return string The syntax OID string.
-	 * @deprecated use $this->syntax_oid;
-	 */
-	public function getSyntaxOID()
-	{
-		return $this->syntax_oid;
-	}
-
-	/**
-	 * Gets this attribute's raw syntax string (ie: "1.2.3.4{16}").
-	 *
-	 * @return string The raw syntax string
-	 */
-	public function getSyntaxString() {
-		if (DEBUG_ENABLED && (($fargs=func_get_args())||$fargs='NOARGS'))
-			debug_log('Entered (%%)',9,1,__FILE__,__LINE__,__METHOD__,$fargs,$this->syntax);
-
-		return $this->syntax;
-	}
-
-	/**
-	 * Gets this attribute's type
-	 *
-	 * @return string The attribute's type.
-	 * @deprecated use $this->type;
-	 */
-	public function getType()
-	{
-		return $this->type;
-	}
-
-	/**
-	 * Gets this attribute's usage string as defined by the LDAP server
-	 *
-	 * @return string
-	 * @deprecated use $this->usage
-	 */
-	public function getUsage()
-	{
-		return $this->usage;
-	}
-
-	/**
-	 * Gets the list of "used in" objectClasses, that is the list of objectClasses
-	 * which provide this attribute.
-	 *
-	 * @return Collection An array of names of objectclasses (strings) which provide this attribute
-	 * @deprecated use $this->used_in_object_classes
-	 */
-	public function getUsedInObjectClasses(): Collection
-	{
-		return $this->used_in_object_classes;
-	}
-
-	/**
-	 * Returns whether the specified attribute is an alias for this one (based on this attribute's alias list).
-	 *
-	 * @param string $attr_name The name of the attribute to check.
-	 * @return boolean TRUE if the specified attribute is an alias for this one, or FALSE otherwise.
-	 */
-	public function isAliasFor($attr_name) {
-		if (DEBUG_ENABLED && (($fargs=func_get_args())||$fargs='NOARGS'))
-			debug_log('Entered (%%)',9,0,__FILE__,__LINE__,__METHOD__,$fargs);
-
-		foreach ($this->aliases as $alias_attr_name)
-			if (strcasecmp($alias_attr_name,$attr_name) == 0)
-				return TRUE;
-
-		return FALSE;
-	}
-
-	/**
-	 * @return bool
-	 * @deprecated use $this->forced_as_may
-	 */
-	public function isForceMay(): bool
-	{
-		return $this->forced_as_may;
-	}
-
-	/**
-	 * Removes an attribute name from this attribute's alias array.
-	 *
-	 * @param string $alias The name of the attribute to remove.
-	 */
-	public function removeAlias(string $alias): void
-	{
-		if (($x=$this->aliases->search($alias)) !== FALSE)
-			$this->aliases->forget($x);
-	}
-
-	/**
-	 * Given a list of object classes, determine if this is a required attribute
-	 *
-	 * @param Collection $oc List of objectclasses to compare.
+	 * @param Collection $ocs
 	 * @return Collection
 	 */
-	public function required_by(Collection $oc): Collection
+	private function heirachy(Collection $ocs): Collection
 	{
-		return $oc->diff($this->required_by_object_classes);
+		$result = collect();
+
+		foreach ($ocs as $oc) {
+			$item = config('server')
+				->schema('objectclasses',$oc);
+
+			$result = $result
+				->merge($item
+					->getParents(TRUE)
+					->pluck('name'))
+				->push($item->name);
+		}
+
+		return $result;
 	}
 
 	/**
-	 * Sets this attribute's list of aliases.
+	 * Creates a new AttributeType object from a raw LDAP AttributeType string.
 	 *
-	 * @param Collection $aliases The array of alias names (strings)
-	 * @deprecated use $this->aliases =
+	 * eg: ( 2.5.4.0 NAME 'objectClass' DESC 'RFC4512: object classes of the entity' EQUALITY objectIdentifierMatch SYNTAX 1.3.6.1.4.1.1466.115.121.1.38 )
 	 */
-	public function setAliases(Collection $aliases): void
+	protected function parse(string $line): void
 	{
-		$this->aliases = $aliases;
+		Log::debug(sprintf('%s:Parsing AttributeType [%s]',self::LOGKEY,$line));
+
+		// Init
+		$this->names = collect();
+		$this->children = collect();
+		$this->used_in_object_classes = collect();
+		$this->required_by_object_classes = collect();
+
+		parent::parse($line);
 	}
 
-	/**
-	 * This function will mark this attribute as a forced MAY attribute
-	 */
-	public function setForceMay() {
-		if (DEBUG_ENABLED && (($fargs=func_get_args())||$fargs='NOARGS'))
-			debug_log('Entered (%%)',9,1,__FILE__,__LINE__,__METHOD__,$fargs);
+	protected function parse_chunk(array $strings,int &$i): void
+	{
+		switch ($strings[$i]) {
+			case 'NAME':
+				$name = '';
 
-		$this->forced_as_may = TRUE;
+				// @note Some schema's return a (' instead of a ( '
+				// @note This attribute format has no aliases
+				if ($strings[$i+1] !== '(' && ! preg_match('/^\(/',$strings[$i+1])) {
+					do {
+						$name .= ($name ? ' ' : '').$strings[++$i];
+
+					} while (! preg_match("/\'$/s",$strings[$i]));
+
+				} else {
+					$i++;
+
+					do {
+						// In case we came here because of a ('
+						if (preg_match('/^\(/',$strings[$i]))
+							$strings[$i] = preg_replace('/^\(/','',$strings[$i]);
+						else
+							$i++;
+
+						$name .= ($name ? ' ' : '').$strings[++$i];
+
+					} while (! preg_match("/\'$/s",$strings[$i]));
+
+					// Add alias names for this attribute
+					while ($strings[++$i] !== ')') {
+						$alias = preg_replace("/^\'(.*)\'$/",'$1',$strings[$i]);
+						$this->names->push($alias);
+					}
+				}
+
+				$this->names = $this->names->push(preg_replace("/^\'(.*)\'$/",'$1',$name))->sort();
+				$this->forced_as_may = $this->names_lc
+					->intersect(array_map('strtolower',config('pla.force_may',[])))
+					->count() > 0;
+
+				if (static::DEBUG_VERBOSE)
+					Log::debug(sprintf('%s:- Case NAME returned (%s)',self::LOGKEY,$this->name),['names'=>$this->names]);
+				break;
+
+			case 'SUP':
+				$this->sup_attribute = preg_replace("/^\'(.*)\'$/",'$1',$strings[++$i]);
+
+				if (static::DEBUG_VERBOSE)
+					Log::debug(sprintf('%s:- Case SUP returned (%s)',self::LOGKEY,$this->sup_attribute));
+				break;
+
+			case 'EQUALITY':
+				$this->equality = $strings[++$i];
+
+				if (static::DEBUG_VERBOSE)
+					Log::debug(sprintf('%s:- Case EQUALITY returned (%s)',self::LOGKEY,$this->equality));
+				break;
+
+			case 'ORDERING':
+				$this->ordering = $strings[++$i];
+
+				if (static::DEBUG_VERBOSE)
+					Log::debug(sprintf('%s:- Case ORDERING returned (%s)',self::LOGKEY,$this->ordering));
+				break;
+
+			case 'SUBSTR':
+				$this->sub_str_rule = $strings[++$i];
+
+				if (static::DEBUG_VERBOSE)
+					Log::debug(sprintf('%s:- Case SUBSTR returned (%s)',self::LOGKEY,$this->sub_str_rule));
+				break;
+
+			case 'SYNTAX':
+				$this->syntax = preg_replace("/^\'(.*)\'$/",'$1',$strings[++$i]);
+				$this->syntax_oid = preg_replace("/^\'?(.*){\d+}\'?$/",'$1',$this->syntax);
+
+				if (static::DEBUG_VERBOSE)
+					Log::debug(sprintf('%s:/ Evaluating SYNTAX returned (%s) [%s]',self::LOGKEY,$this->syntax,$this->syntax_oid));
+
+				// Does this SYNTAX string specify a max length (ie, 1.2.3.4{16})
+				$m = [];
+				$this->max_length = preg_match('/{(\d+)}$/',$this->syntax,$m)
+					? $m[1]
+					: NULL;
+
+				if (static::DEBUG_VERBOSE)
+					Log::debug(sprintf('%s:- Case SYNTAX returned (%s) [%s] {%d}',self::LOGKEY,$this->syntax,$this->syntax_oid,$this->max_length));
+				break;
+
+			case 'SINGLE-VALUE':
+				$this->is_single_value = TRUE;
+
+				if (static::DEBUG_VERBOSE)
+					Log::debug(sprintf('%s:- Case SINGLE-VALUE returned (%s)',self::LOGKEY,$this->is_single_value));
+				break;
+
+			case 'COLLECTIVE':
+				$this->is_collective = TRUE;
+
+				if (static::DEBUG_VERBOSE)
+					Log::debug(sprintf('%s:- Case COLLECTIVE returned (%s)',self::LOGKEY,$this->is_collective));
+				break;
+
+			case 'NO-USER-MODIFICATION':
+				$this->is_no_user_modification = TRUE;
+
+				if (static::DEBUG_VERBOSE)
+					Log::debug(sprintf('%s:- Case NO-USER-MODIFICATION returned (%s)',self::LOGKEY,$this->is_no_user_modification));
+				break;
+
+			case 'USAGE':
+				$this->usage = $strings[++$i];
+
+				if (static::DEBUG_VERBOSE)
+					Log::debug(sprintf('%s:- Case USAGE returned (%s)',self::LOGKEY,$this->usage));
+				break;
+
+			default:
+				parent::parse_chunk($strings,$i);
+		}
 	}
 
 	/**
@@ -575,24 +290,62 @@ final class AttributeType extends Base {
 	}
 
 	/**
-	 * Sets this attribute's SUP attribute (ie, the attribute from which this attribute inherits).
+	 * If this is a MUST attribute to the objectclass that defines it
 	 *
-	 * @param string $attr The name of the new parent (SUP) attribute
+	 * @return void
 	 */
-	public function setSupAttribute(string $attr): void
+	public function setMust(): void
 	{
-		$this->sup_attribute = trim($attr);
+		$this->is_must = TRUE;
 	}
 
 	/**
-	 * Sets this attribute's type.
+	 * Sets this attribute's name.
 	 *
-	 * @param string $type The new type.
+	 * @param string $name The new name to give this attribute.
+	 * @throws InvalidUsage
 	 */
-	public function setType($type) {
-		if (DEBUG_ENABLED && (($fargs=func_get_args())||$fargs='NOARGS'))
-			debug_log('Entered (%%)',9,1,__FILE__,__LINE__,__METHOD__,$fargs);
+	public function setName(string $name): void
+	{
+		// Quick validation
+		if ($this->names_lc->count() && (! $this->names_lc->contains(strtolower($name))))
+			throw new InvalidUsage(sprintf('Cannot set attribute name to [%s], its not an alias for [%s]',$name,$this->names->join(',')));
 
-		$this->type = $type;
+		$this->name = $name;
+	}
+
+	/**
+	 * Return Request validation array
+	 *
+	 * This will merge configured validation with schema required attributes
+	 *
+	 * @param array $array
+	 * @return array|null
+	 */
+	public function validation(array $array): ?array
+	{
+		// For each item in array, we need to get the OC hierarchy
+		$heirachy = $this->heirachy(collect($array)
+			->flatten()
+			->filter());
+
+		// Get any config validation
+		$validation = collect(Arr::get(config('ldap.validation'),$this->name_lc,[]));
+
+		$nolangtag = sprintf('%s.%s.0',
+			$this->name_lc,
+			in_array($this->name_lc,config('ldap.attrtags.only_binary'))
+				? 'binary'
+				: Entry::TAG_NOTAG);
+
+		// Add in schema required by conditions
+		if (($heirachy->intersect($this->required_by_object_classes->keys())->count() > 0)
+			&& (! collect($validation->get($this->name_lc))->contains('required'))) {
+			$validation
+				->prepend(array_merge(['required','min:1'],$validation->get($nolangtag,[])),$nolangtag)
+				->prepend(array_merge(['required','array','min:1',(Attribute\Factory::create(dn: '',attribute: $this->name,values: [Entry::TAG_NOTAG=>['']])->no_attr_tags ? 'max:1' : NULL)],$validation->get($this->name_lc,[])),$this->name_lc);
+		}
+
+		return $validation->toArray();
 	}
 }

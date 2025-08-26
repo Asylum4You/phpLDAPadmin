@@ -1,5 +1,100 @@
-img.jpegphoto {
-	display:block;
-	max-width:100px;
-	height:100px;
+/* ensure our password type select box shrinks and has the full boarder */
+attribute#userpassword .input-group > .form-select  {
+	flex-grow: 0;
+	width: 9em;
+	border: var(--bs-gray-500) 1px solid;
+	z-index: 2;
+}
+
+attribute#userpassword .input-group .select2-container--bootstrap-5 {
+	flex-grow: 0;
+	margin-bottom: 0.25em !important;
+}
+
+attribute#userpassword .input-group > .select2-container--bootstrap-5 .select2-selection {
+	background-color: #eef2f4;
+}
+
+/* render the structural inside the input box */
+attribute#objectclass .input-group-end:not(input.form-control) {
+	position: absolute;
+	right: 1em;
+	top: 0.5em;
+	z-index: 5;
+}
+
+input.form-control:has(+ .input-group-end) {
+	border-bottom-right-radius: 4px !important;
+	border-top-right-radius: 4px !important;
+}
+
+.custom-tooltip-success {
+	--bs-tooltip-bg: var(--bs-success);
+}
+
+.custom-tooltip-warning {
+	--bs-tooltip-bg: var(--bs-warning);
+	--bs-tooltip-color: black;
+}
+
+.custom-tooltip-danger {
+	--bs-tooltip-bg: var(--bs-danger);
+}
+
+.custom-tooltip {
+	--bs-tooltip-bg: var(--bs-gray-900);
+}
+
+.tooltip {
+	font-size: 85%;
+}
+
+/*
+.custom-tooltip-warning .tooltip-inner {
+	--bs-tooltip-bg: #ffffff;
+	--bs-tooltip-color: var(--bs-warning);
+	--bs-font-size: 85%;
+	border: 2px solid var(--bs-warning);
+	border-radius: 6px;
+}
+
+.custom-tooltip-warning .tooltip-arrow::before {
+	--bs-tooltip-bg: var(--bs-warning);
+}
+
+.custom-tooltip-danger .tooltip-inner {
+	--bs-tooltip-bg: #ffffff;
+	--bs-tooltip-color: var(--bs-danger);
+	--bs-font-size: 85%;
+	border: 2px solid var(--bs-danger);
+	border-radius: 6px;
+}
+
+.custom-tooltip-danger .tooltip-arrow::before {
+	--bs-tooltip-bg: var(--bs-danger);
+}
+*/
+
+/* hide the site icons when the search is opened */
+.search-wrapper.active + .header-menu.nav {
+	display: none;
+}
+
+.page-title-wrapper .page-title-items {
+	margin-left: auto;
+	max-width: 50%;
+}
+
+.page-title-wrapper .page-title-items .page-title-status .alert {
+	font-size: 0.80em;
+}
+
+/* Square UL items */
+ul.square {
+	list-style-type: square;
+}
+
+/* Fix select2 selections when set up with d-none */
+select[class*="d-none"] + span.select2 {
+	display: none;
 }

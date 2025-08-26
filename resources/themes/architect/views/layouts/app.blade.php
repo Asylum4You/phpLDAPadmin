@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" translate="no">
 	@section('htmlheader')
 		@include('architect::layouts.partials.htmlheader')
 	@show
@@ -16,7 +16,7 @@
 				<div class="app-main__outer">
 					<div class="app-main__inner">
 						<div class="main-content">
-							@if (trim($__env->yieldContent('page_title')))
+							@if(trim($__env->yieldContent('page_title')))
 								@include('architect::layouts.partials.contentheader')
 							@endif
 

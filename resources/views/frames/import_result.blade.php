@@ -1,8 +1,8 @@
 @section('page_title')
 	<table class="table table-borderless">
 		<tr>
-			<td style="border-radius: 5px;"><div class="page-title-icon f32"><i class="fas fa-upload"></i></div></td>
-			<td class="top text-start align-text-top p-0 pt-2"><strong>@lang('LDIF Import Result')</strong><br><small>To Server XXX</small></td>
+			<td><div class="page-title-icon f32"><i class="fas fa-upload"></i></div></td>
+			<td class="top text-start align-text-top p-0 pt-2"><strong>@lang('LDIF Import Result')</strong><br><small>@lang('To Server') <strong>{{ $server->name }}</strong></small></td>
 		</tr>
 	</table>
 @endsection
@@ -28,9 +28,15 @@
 										<th class="text-end">@lang('Line')</th>
 									</tr>
 									</thead>
-									@foreach ($result as $item)
+									@foreach($result as $item)
 										<tr>
-											<td>{{ $item->get('dn') }}</td>
+											<td>
+												@if($x=$item->get('link'))
+													<a href="{{ url('/') }}#{{ $x }}">{{ $item->get('dn') }}</a>
+												@else
+													{{ $item->get('dn') }}
+												@endif
+											</td>
 											<td>{{ $item->get('result') }}</td>
 											<td class="text-end">{{ $item->get('line') }}</td>
 										</tr>

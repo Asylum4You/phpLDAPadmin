@@ -13,14 +13,13 @@ class GetBaseDNTest extends TestCase
 	 *
 	 * @return void
 	 * @throws \LdapRecord\Query\ObjectNotFoundException
-	 * @covers \App\Classes\LDAP\Server::baseDNs()
 	 */
 	public function testBaseDnExists()
 	{
-		$o = Server::baseDNs();
+		$o = Server::baseDNs(TRUE);
 
 		$this->assertIsObject($o);
 		$this->assertCount(6,$o->toArray());
-		$this->assertEquals('dc=Test',$o->first()->getDn());
+		$this->assertEquals('c=AU',$o->first()->getDn());
 	}
 }

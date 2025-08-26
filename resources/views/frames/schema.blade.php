@@ -3,8 +3,8 @@
 @section('page_title')
 	<table class="table table-borderless">
 		<tr>
-			<td style="border-radius: 5px;"><div class="page-title-icon f32"><i class="fas fa-fingerprint"></i></div></td>
-			<td class="top text-end align-text-top p-0 pt-2"><strong>{{ \App\Classes\LDAP\Server::schemaDN() }}</strong></td>
+			<td><div class="page-title-icon f32"><i class="fas fa-fingerprint"></i></div></td>
+			<td class="top text-end align-text-top p-2"><strong>{{ $server->schemaDN() }}</strong></td>
 		</tr>
 	</table>
 @endsection
@@ -57,7 +57,7 @@
 					return false;
 
 				$.ajax({
-					url: '{{ url('api/schema/view') }}',
+					url: '{{ url('ajax/schema/view') }}',
 					method: 'POST',
 					data: { type: type },
 					dataType: 'html',

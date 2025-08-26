@@ -1,21 +1,20 @@
 <div class="row">
-
 	<div class="col-12 col-xl-3">
 		<select id="attributetype" class="form-control">
 			<option value="-all-">-all-</option>
-			@foreach ($attributetypes as $o)
-				<option value="{{ $o->name_lc }}">{{ $o->name }}</option>
+			@foreach(($at=$attributetypes->sortBy(fn($item)=>$item->names_lc->join(','))) as $o)
+				<option value="{{ $o->names_lc->join('-') }}">{{ $o->names->join(',') }}</option>
 			@endforeach
 		</select>
 	</div>
 
 	<div class="col-12 col-xl-9">
-		@foreach ($attributetypes as $o)
-			<span id="at-{{ $o->name_lc }}">
+		@foreach($at as $o)
+			<span id="at-{{ $o->names_lc->join('-') }}">
 				<table class="schema table table-sm table-bordered table-striped">
 					<thead>
 					<tr>
-						<th class="table-dark" colspan="2">{{ $o->name }}<span class="float-end"><abbr title="{{ $o->line }}"><i class="fas fa-fw fa-file-contract"></i></abbr></span></th>
+						<th class="table-dark" colspan="2">{{ $o->names->join(' / ') }}<span class="float-end"><abbr title="{{ $o->line }}"><i class="fas fa-fw fa-file-contract"></i></abbr></span></th>
 					</tr>
 					</thead>
 
@@ -31,16 +30,16 @@
 					</tr>
 					<tr>
 						<td>@lang('Inherits from')</td>
-						<td><strong>@if ($o->sup_attribute)<a class="attributetype" id="{{ strtolower($o->sup_attribute) }}" href="#{{ strtolower($o->sup_attribute) }}">{{ $o->sup_attribute }}</a>@else @lang('(none)')@endif</strong></td>
+						<td><strong>@if($o->sup_attribute)<a class="attributetype" id="{{ strtolower($o->sup_attribute) }}" href="#{{ strtolower($o->sup_attribute) }}">{{ $o->sup_attribute }}</a>@else @lang('(none)')@endif</strong></td>
 					</tr>
 					<tr>
 						<td>@lang('Parent to')</td>
 						<td>
 							<strong>
-								@if (! $o->children->count())
+								@if(! $o->children->count())
 									@lang('(none)')
 								@else
-									@foreach ($o->children->sort() as $child)
+									@foreach($o->children->sort() as $child)
 										@if($loop->index)</strong> <strong>@endif
 										<a class="attributetype" id="{{ strtolower($child) }}" href="#{{ strtolower($child) }}">{{ $child }}</a>
 									@endforeach
@@ -58,7 +57,7 @@
 						<td>@lang('Substring Rule')</td><td><strong>{{ $o->sub_str_rule ?: __('(not specified)') }}</strong></td>
 					</tr>
 					<tr>
-						<td>@lang('Syntax')</td><td><strong>{{ ($o->syntax_oid && $x=$server->schemaSyntaxName($o->syntax_oid)) ? $x->description : __('(unknown syntax)') }} @if($o->syntax_oid)({{ $o->syntax_oid }})@endif</strong></td>
+						<td>@lang('Syntax')</td><td><strong>{{ ($o->syntax_oid && $x=$server->get_syntax($o->syntax_oid)) ? $x->description : __('(unknown syntax)') }} @if($o->syntax_oid)({{ $o->syntax_oid }})@endif</strong></td>
 					</tr>
 					<tr>
 						<td>@lang('Single Valued')</td><td><strong>@lang($o->is_single_value ? 'Yes' : 'No')</strong></td>
@@ -78,11 +77,8 @@
 					<tr>
 						<td>@lang('Aliases')</td>
 						<td><strong>
-							@if ($o->aliases->count())
-								@foreach ($o->aliases as $alias)
-									@if ($loop->index)</strong> <strong>@endif
-									<a class="attributetype" id="{{ strtolower($alias) }}" href="#{{ strtolower($alias) }}">{{ $alias }}</a>
-								@endforeach
+							@if($o->names->count() > 1)
+								{!! $o->names->join('</strong>, <strong>') !!}
 							@else
 								@lang('(none)')
 							@endif
@@ -90,16 +86,39 @@
 					</tr>
 					<tr>
 						<td>@lang('Used by ObjectClasses')</td>
-						<td><strong>
-							@if ($o->used_in_object_classes->count())
-								@foreach ($o->used_in_object_classes as $class)
-									@if ($loop->index)</strong> <strong>@endif
-									<a class="objectclass" id="{{ strtolower($class) }}" href="#{{ strtolower($class) }}">{{ $class }}</a>
+						<td>
+							@if($o->used_in_object_classes->count())
+								@foreach($o->used_in_object_classes as $name => $structural)
+									@if($structural)
+										<strong>
+									@endif
+									<a class="objectclass" id="{{ strtolower($name) }}" href="#{{ strtolower($name) }}">{{ $name }}</a>
+									@if($structural)
+										</strong>
+									@endif
 								@endforeach
 							@else
 								@lang('(none)')
 							@endif
-						</strong></td>
+						</td>
+					</tr>
+					<tr>
+						<td>@lang('Required by ObjectClasses')</td>
+						<td>
+							@if($o->required_by_object_classes->count())
+								@foreach($o->required_by_object_classes as $class => $structural)
+									@if($structural)
+										<strong>
+									@endif
+									<a class="objectclass" id="{{ strtolower($class) }}" href="#{{ strtolower($class) }}">{{ $class }}</a>
+									@if($structural)
+										</strong>
+									@endif
+								@endforeach
+							@else
+								@lang('(none)')
+							@endif
+						</td>
 					</tr>
 					<tr>
 						<td>@lang('Force as MAY by config')</td><td><strong>@lang($o->forced_as_may ? 'Yes' : 'No')</strong></td>

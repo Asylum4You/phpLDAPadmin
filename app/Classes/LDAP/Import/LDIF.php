@@ -24,7 +24,9 @@ class LDIF extends Import
 	public function process(): Collection
 	{
 		$c = 0;
-		$action = NULL;
+		$action = self::LDAP_IMPORT_ADD; // Assume add mode
+		$subaction = 'add';	// Assume add
+		$dn = NULL;
 		$attribute = NULL;
 		$base64encoded = FALSE;
 		$o = NULL;
@@ -32,23 +34,39 @@ class LDIF extends Import
 		$version = NULL;
 		$result = collect();
 
-		// @todo When renaming DNs, the hotlink should point to the new entry on success, or the old entry on failure.
 		foreach (preg_split('/(\r?\n|\r)/',$this->input) as $line) {
 			$c++;
-			Log::debug(sprintf('%s: LDIF Line [%s]',self::LOGKEY,$line));
+			Log::debug(sprintf('%s:LDIF Line [%s] (%d)',self::LOGKEY,$line,$c));
 			$line = trim($line);
 
 			// If the line starts with a comment, ignore it
 			if (preg_match('/^#/',$line))
 				continue;
 
+			// If the line starts with a dash, its more updates to the same entry
+			if (preg_match('/^-/',$line)) {
+				Log::debug(sprintf('%s:/ DASH Line [%s] (%d)',self::LOGKEY,$line,$c),['action'=>$action,'subaction'=>$subaction,'attribute'=>$attribute,'value'=>$value]);
+
+				if ($attribute)
+					$o = $this->entry($o,$attribute,$subaction,$base64encoded ? base64_decode($value) : $value,$c);
+
+				$base64encoded = FALSE;
+				$attribute = NULL;
+				$value = '';
+				continue;
+			}
+
 			// If we have a blank line, then that completes this command
 			if (! $line) {
-				if (! is_null($o)) {
-					// Add the last attribute;
-					$o->addAttribute($attribute,$base64encoded ? base64_decode($value) : $value);
+				// If we havent got a version yet, then we havent started
+				if (! $version) {
+					continue;
 
-					Log::debug(sprintf('%s: Committing Entry [%s]',self::LOGKEY,$o->getDN()));
+				} elseif (! is_null($o)) {
+					if ($attribute)
+						$o = $this->entry($o,$attribute,$subaction,$base64encoded ? base64_decode($value) : $value,$c);
+
+					Log::debug(sprintf('%s:- Committing Entry (More) [%s]',self::LOGKEY,$o->getDN()));
 
 					// Commit
 					$result->push($this->commit($o,$action));
@@ -60,27 +78,122 @@ class LDIF extends Import
 					$attribute = NULL;
 					$value = '';
 
-				// Else its a blank line
+				} else {
+					throw new GeneralException(sprintf('Processing Error - Line exists [%s] on (%d) but object is NULL',$line,$c));
 				}
 
 				continue;
 			}
 
 			$m = [];
-			preg_match('/^([a-zA-Z0-9;-]+)(:+)\s+(.*)$/',$line,$m);
+			preg_match('/^([a-zA-Z0-9;-]+)(:+)\s*(.*)$/',$line,$m);
 
-			switch ($x=Arr::get($m,1)) {
+			// If $m is NULL, then this is the 2nd (or more) line of a base64 encoded value
+			if (! $m) {
+				$value .= $line;
+				Log::debug(sprintf('%s:+ attribute [%s] appending [%s] (%d)',self::LOGKEY,$attribute,$line,$c));
+
+				// add to last attr value
+				continue;
+
+			} else {
+				// If base64 mode was enabled, and there is a following attribute after a base64encoded attribute, it hasnt been processed yet
+				if ($base64encoded) {
+					Log::debug(sprintf('%s:- Completing base64 attribute [%s]',self::LOGKEY,$attribute));
+
+					if (! $o) {
+						$o = $this->item($dn,$action);
+						Log::debug(sprintf('%s:+ Created Object for [%s]',self::LOGKEY,$dn));
+
+						if (! $o) {
+							$result->push(collect(['dn'=>$dn,'result'=>__('Entry doesnt exist')]));
+							$result->last()->put('line',$c);
+
+							continue;
+						}
+					}
+
+					$o = $this->entry($o,$attribute,$subaction,base64_decode($value),$c);
+
+					$attribute = NULL;
+				}
+
+				$base64encoded = ($m[2] === '::');
+				$value = $m[3];
+
+				// If we are base64encoded, we need to loop around
+				if ($base64encoded) {
+					$attribute = $m[1];
+
+					Log::debug(sprintf('%s:/ Retrieving base64 attribute [%s] (%d)',self::LOGKEY,$attribute,$c));
+
+					continue;
+				}
+			}
+
+			switch (Arr::get($m,1)) {
+				case 'dn':
+					if (! is_null($o))
+						throw new GeneralException(sprintf('Previous Entry not complete? (line %d)',$c));
+
+					$dn = $base64encoded ? base64_decode($value) : $value;
+					Log::debug(sprintf('%s:# Got DN [%s]:',self::LOGKEY,$dn));
+
+					$value = '';
+					$base64encoded = FALSE;
+					continue 2;
+
 				case 'changetype':
 					if ($m[2] !== ':')
-						throw new GeneralException(sprintf('ChangeType cannot be base64 encoded set at [%d]. (line %d)',$version,$c));
+						throw new GeneralException(sprintf('changetype cannot be base64 encoded set at [%d]. (line %d)',$version,$c));
+
+					Log::debug(sprintf('%s:- Action [%s]',self::LOGKEY,$m[3]));
 
 					switch ($m[3]) {
-						// if (preg_match('/^changetype:[ ]*(delete|add|modrdn|moddn|modify)/i',$lines[0])) {
+						case 'add':
+							$action = self::LDAP_IMPORT_ADD;
+							break;
+
+						case 'modify':
+							$action = self::LDAP_IMPORT_MODIFY;
+							break;
+
+						/*
+						case 'delete':
+							$action = self::LDAP_IMPORT_DELETE;
+							break;
+						*/
+
+						// @todo modrdn|moddn
 						default:
 							throw new NotImplementedException(sprintf('Unknown change type [%s]? (line %d)',$m[3],$c));
 					}
 
-					break;
+					$o = $this->item($dn,$action);
+					Log::debug(sprintf('%s:+ Created Object for [%s]',self::LOGKEY,$dn));
+
+					if (! $o) {
+						$result->push(collect(['dn'=>$dn,'result'=>__('Entry doesnt exist')]));
+						$result->last()->put('line',$c);
+					}
+
+					continue 2;
+
+				case 'add':
+				case 'replace':
+					if ($action !== self::LDAP_IMPORT_MODIFY)
+						throw new GeneralException(sprintf('%s action can only be used with changetype: modify (line %d)',$m[1],$c));
+
+					$subaction = $m[1];
+
+					continue 2;
+
+				case 'delete':
+					$subaction = $m[1];
+					$attribute = $m[3];
+					$value = '';
+
+					continue 2;
 
 				case 'version':
 					if (! is_null($version))
@@ -90,66 +203,45 @@ class LDIF extends Import
 						throw new VersionException(sprintf('Version cannot be base64 encoded set at [%d]. (line %d)',$version,$c));
 
 					$version = (int)$m[3];
-					break;
+
+					continue 2;
 
 				// Treat it as an attribute
 				default:
-					// If $m is NULL, then this is the 2nd (or more) line of a base64 encoded value
-					if (! $m) {
-						$value .= $line;
-						Log::debug(sprintf('%s: Attribute [%s] adding [%s] (%d)',self::LOGKEY,$attribute,$line,$c));
-
-						// add to last attr value
-						continue 2;
-					}
-
-					// We are ready to create the entry or add the attribute
-					if ($attribute) {
-						if ($attribute === 'dn') {
-							if (! is_null($o))
-								throw new GeneralException(sprintf('Previous Entry not complete? (line %d)',$c));
-
-							$dn = $base64encoded ? base64_decode($value) : $value;
-							Log::debug(sprintf('%s: Creating new entry:',self::LOGKEY,$dn));
-							//$o = Entry::find($dn);
-
-							// If it doesnt exist, we'll create it
-							//if (! $o) {
-								$o = new Entry;
-								$o->setDn($dn);
-							//}
-
-							$action = self::LDAP_IMPORT_ADD;
-
-						} else {
-							Log::debug(sprintf('%s: Adding Attribute [%s] value [%s] (%d)',self::LOGKEY,$attribute,$value,$c));
-
-							if ($value)
-								$o->addAttribute($attribute,$base64encoded ? base64_decode($value) : $value);
-							else
-								throw new GeneralException(sprintf('Attribute has no value [%s] (line %d)',$attribute,$c));
-						}
-					}
-
 					// Start of a new attribute
-					$base64encoded = ($m[2] === '::');
-					// @todo Need to parse attributes with ';' options
 					$attribute = $m[1];
-					$value = $m[3];
-
-					Log::debug(sprintf('%s: New Attribute [%s] with [%s] (%d)',self::LOGKEY,$attribute,$value,$c));
+					Log::debug(sprintf('%s:- Working with Attribute [%s] with [%s] (%d)',self::LOGKEY,$attribute,$value,$c));
 			}
 
 			if ($version !== 1)
 				throw new VersionException('LDIF import cannot handle version: '.($version ?: __('NOT DEFINED')));
+
+			// If we have version, dn and the attribute is changetype or an attribute, we can create our object.
+			if ((Arr::get($m,1) !== 'dn') && $dn) {
+				if (! $o) {
+					$o = $this->item($dn,$action);
+
+					if (! $o) {
+						$result->push(collect(['dn'=>$dn,'result'=>__('Entry doesnt exist')]));
+						$result->last()->put('line',$c);
+					}
+				}
+
+				$dn = NULL;
+			}
+
+			// We are ready to create the entry or add the attribute
+			$o = $this->entry($o,$attribute,$subaction,$base64encoded ? base64_decode($value) : $value,$c);
+			$attribute = NULL;
+			$value = '';
 		}
 
 		// We may still have a pending action
-		if ($action) {
-			// Add the last attribute;
-			$o->addAttribute($attribute,$base64encoded ? base64_decode($value) : $value);
+		if ($o) {
+			if ($attribute)
+				$o = $this->entry($o,$attribute,$subaction,$base64encoded ? base64_decode($value) : $value,$c);
 
-			Log::debug(sprintf('%s: Committing Entry [%s]',self::LOGKEY,$o->getDN()));
+			Log::debug(sprintf('%s:- Committing Entry (Final) [%s]',self::LOGKEY,$o->getDN()),['dirty'=>$o->getDirty()]);
 
 			// Commit
 			$result->push($this->commit($o,$action));
@@ -159,75 +251,65 @@ class LDIF extends Import
 		return $result;
 	}
 
-	public function readEntry() {
-		static $haveVersion = false;
+	private function item(string $dn,int $action): ?Entry
+	{
+		if ($action === self::LDAP_IMPORT_ADD) {
+			Log::debug(sprintf('%s:Creating new entry [%s]:',self::LOGKEY,$dn));
 
-		if ($lines = $this->nextLines()) {
+			$o = new Entry;
+			$o->setDn($dn);
 
-			$server = $this->getServer();
+		} else {
+			Log::debug(sprintf('%s:Looking for existing entry [%s]:',self::LOGKEY,$dn));
 
-			# The first line should be the DN
-			if (preg_match('/^dn:/',$lines[0])) {
-				list($text,$dn) = $this->getAttrValue(array_shift($lines));
+			$o = Entry::find($dn);
+		}
 
-				# The second line should be our changetype
-				if (preg_match('/^changetype:[ ]*(delete|add|modrdn|moddn|modify)/i',$lines[0])) {
-					$attrvalue = $this->getAttrValue($lines[0]);
-					$changetype = $attrvalue[1];
-					array_shift($lines);
+		return $o;
+	}
+
+	private function entry(Entry $o,string $attribute,string $subaction,?string $value,int $c): Entry
+	{
+		Log::debug(sprintf('%s:. %s Attribute [%s] value [%s] (%d)',self::LOGKEY,$subaction,$attribute,$value,$c));
+
+		switch ($subaction) {
+			case 'add':
+				if (! strlen($value))
+					throw new GeneralException(sprintf('Attribute has no value [%s] (line %d)',$attribute,$c));
+
+				$o->addAttributeItem($attribute,$value);
+				break;
+
+			case 'replace':
+				if (! strlen($value))
+					throw new GeneralException(sprintf('Attribute has no value [%s] (line %d)',$attribute,$c));
+
+				if (! ($x=$o->getObject(strstr($attribute,';',TRUE) ?: $attribute)))
+					throw new \Exception(sprintf('Attribute [%s] doesnt exist in [%s] (line %d)',$attribute,$o->getDn(),$c));
+
+				// If the attribute has changed, we'll assume this is an additional value for it
+				if ($x->isDirty()) {
+					Log::debug(sprintf('%s:/ Attribute [%s] has changed, assuming add',self::LOGKEY,$attribute));
+
+					$o->addAttributeItem($attribute,$value);
 
 				} else
-					$changetype = 'add';
+					$o->{$attribute} = [Entry::TAG_NOTAG=>[$value]];
 
-				$this->template = new Template($this->server_id,null,null,$changetype);
+				break;
 
-				switch ($changetype) {
-					case 'add':
-						$rdn = get_rdn($dn);
-						$container = $server->getContainer($dn);
+			case 'delete':
+				if (! $o->getObject($attribute))
+					throw new \Exception(sprintf('Attribute [%s] doesnt exist in [%s] (line %d)',$attribute,$o->getDn(),$c));
 
-						$this->template->setContainer($container);
-						$this->template->accept();
+				$o->{$attribute} = [];
+				break;
 
-						$this->getAddDetails($lines);
-						$this->template->setRDNAttributes($rdn);
+			default:
+				throw new \Exception('Unknown subaction:'.$subaction);
+		}
 
-						return $this->template;
-
-						break;
-
-					case 'modify':
-						if (! $server->dnExists($dn))
-							return $this->error(sprintf('%s %s',_('DN does not exist'),$dn),$lines);
-
-						$this->template->setDN($dn);
-						$this->template->accept(false,true);
-
-						return $this->getModifyDetails($lines);
-
-						break;
-
-					case 'moddn':
-					case 'modrdn':
-						if (! $server->dnExists($dn))
-							return $this->error(sprintf('%s %s',_('DN does not exist'),$dn),$lines);
-
-						$this->template->setDN($dn);
-						$this->template->accept();
-
-						return $this->getModRDNAttributes($lines);
-
-						break;
-
-					default:
-						if (! $server->dnExists($dn))
-							return $this->error(_('Unkown change type'),$lines);
-				}
-
-			} else
-				return $this->error(_('A valid dn line is required'),$lines);
-
-		} else
-			return false;
+		Log::debug(sprintf('%s:%% Entry [%s] now has [%d] attributes',self::LOGKEY,$o->getDN(),$o->getObjects()->count()));
+		return $o;
 	}
 }

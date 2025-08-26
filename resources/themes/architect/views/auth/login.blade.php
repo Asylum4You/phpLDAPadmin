@@ -10,30 +10,23 @@
 		<div class="app-container">
 			<div class="h-100 bg-animation">
 				<div class="d-flex h-100 justify-content-center align-items-center">
-					<div class="mx-auto app-login-box col-md-8">
-						@if(file_exists('login-note.html'))
-							<div class="mx-auto card text-white card-body bg-primary w-50">
-								<h5 class="text-white card-title"><i class="icon fa-2x fas fa-info pe-3"></i><span class="font-size-xlg">NOTE</span></h5>
-								<span class="w-100 pb-0">
-									{!! file_get_contents('login-note.html') !!}
-								</span>
-							</div>
-						@endif
+					<div class="mx-auto col-12 col-sm-8">
+						<x-file-note file="login-note.html"/>
 
-						<div class="modal-dialog w-100 mx-auto">
+						<div class="modal-dialog modal-lg">
 							<div class="modal-content">
-								<form class="needs-validation" novalidate method="post">
-									{{ csrf_field() }}
+								<form class="form-control needs-validation p-0" novalidate method="post">
+									@csrf
 
-									<div class="modal-body">
+									<div class="modal-body p-3">
 										<div class="h5 modal-title text-center">
 											<h4 class="mt-2">
 												<div class="app-logo mx-auto mb-3"><img class="w-75" src="{{ url('images/logo-h-lg.png') }}"></div>
-												<small>@lang('Sign in to <strong>:server</strong>',['server'=>config('ldap.connections.default.name')])</small>
+												<small>@lang('Sign in to') <strong>{{ $server->name }}</strong></small>
 											</h4>
 										</div>
 
-										<div class="form-row">
+										<div class="row">
 											<div class="col-md-12 mt-3">
 												<label class="mb-1">{{ login_attr_description() }}</label>
 												<input name="{{ login_attr_name() }}" id="user" placeholder="" type="@if(in_array(login_attr_name(),['mail','email'])) email @else text @endif" class="form-control" required="">
@@ -41,7 +34,9 @@
 													@lang('Please enter your '.strtolower(login_attr_description()))
 												</div>
 											</div>
+										</div>
 
+										<div class="row">
 											<div class="col-md-12 mt-2">
 												<label class="mb-1">@lang('Password')</label>
 												<input name="password" id="password" placeholder="" type="password" class="form-control" required>
@@ -50,21 +45,28 @@
 												</div>
 											</div>
 										</div>
-									</div>
 
-									<div class="modal-footer">
-										@if (count($errors) > 0)
-											<div class="alert alert-danger w-100">
-												<strong>Whoops!</strong> Something went wrong?<br><br>
-												<ul>
-													@foreach ($errors->all() as $error)
-														<li>{{ $error }}</li>
-													@endforeach
-												</ul>
+										@if(count($errors) > 0)
+											<div class="row">
+												<div class="col">
+													<div class="alert alert-danger	 m-3">
+														<strong>Whoops!</strong> Something went wrong?<br><br>
+														<ul>
+															@foreach($errors->all() as $error)
+																<li>{{ $error }}</li>
+															@endforeach
+														</ul>
+													</div>
+												</div>
 											</div>
 										@endif
-										<div class="float-end">
-											<button class="btn btn-primary btn-lg">Login</button>
+									</div>
+
+									<div class="modal-footer p-2 border-top">
+											<div class="row">
+											<div class="col float-end">
+												<button class="btn btn-lg btn-primary">Login</button>
+											</div>
 										</div>
 									</div>
 								</form>

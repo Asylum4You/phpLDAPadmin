@@ -2,29 +2,58 @@
 
 namespace App\Classes\LDAP\Attribute;
 
-use Illuminate\Contracts\View\View;
+use App\Exceptions\InvalidUsage;
 use Illuminate\Support\Collection;
 
-use App\Classes\LDAP\{Attribute,Server};
+use App\Classes\LDAP\Attribute;
 
 /**
  * Represents an ObjectClass Attribute
  */
 final class ObjectClass extends Attribute
 {
-	// Which of the values is the structural object class
-	protected Collection $structural;
+	protected(set) bool $no_attr_tags = TRUE;
 
-	public function __construct(string $name,array $values)
+	// The schema ObjectClasses for this objectclass of a DN
+	protected Collection $oc_schema;
+
+	/**
+	 * Create an ObjectClass Attribute
+	 *
+	 * @param string $dn DN this attribute is used in
+	 * @param string $name Name of the attribute
+	 * @param array $values Current Values
+	 * @param array $oc The objectclasses that the DN of this attribute has (ignored for objectclasses)
+	 * @throws InvalidUsage
+	 */
+	public function __construct(string $dn,string $name,array $values,array $oc=[])
 	{
-		parent::__construct($name,$values);
+		parent::__construct($dn,$name,$values,['top']);
 
-		$this->structural = collect();
+		$this->set_oc_schema($this->tagValuesOld());
+	}
 
-		// Determine which of the values is the structural objectclass
-		foreach ($values as $oc) {
-			if ((new Server)->schema('objectclasses',$oc)->isStructural())
-				$this->structural->push($oc);
+	public function __get(string $key): mixed
+	{
+		return match ($key) {
+			'structural' => $this->oc_schema->filter(fn($item)=>$item->isStructural()),
+			default => parent::__get($key),
+		};
+	}
+
+	public function __set(string $key,mixed $values): void
+	{
+		switch ($key) {
+			case 'values':
+				parent::__set($key,$values);
+
+				// We need to populate oc_schema, if we are a new OC and thus dont have any old values
+				if (! $this->values_old->count() && $this->values->count())
+					$this->set_oc_schema($this->tagValues());
+
+				break;
+
+			default: parent::__set($key,$values);
 		}
 	}
 
@@ -36,15 +65,15 @@ final class ObjectClass extends Attribute
 	 */
 	public function isStructural(string $value): bool
 	{
-		return $this->structural->search($value) !== FALSE;
+		return $this->structural
+			->map(fn($item)=>$item->name)
+			->contains($value);
 	}
 
-	public function render(bool $edit=FALSE,bool $old=FALSE,bool $new=FALSE): View
+	private function set_oc_schema(Collection $tv): void
 	{
-		return view('components.attribute.objectclass')
-			->with('o',$this)
-			->with('edit',$edit)
-			->with('old',$old)
-			->with('new',$new);
+		$this->oc_schema = config('server')
+			->schema('objectclasses')
+			->filter(fn($item)=>$tv->contains($item->name));
 	}
 }

@@ -4,7 +4,9 @@ namespace App\Http\Middleware;
 
 use Closure;
 use GuzzleHttp\Client;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 
 class CheckUpdate
@@ -15,13 +17,13 @@ class CheckUpdate
 	/**
 	 * Handle an incoming request.
 	 *
-	 * @param  \Illuminate\Http\Request  $request
-	 * @param  \Closure  $next
+	 * @param  Request  $request
+	 * @param  Closure  $next
 	 * @return mixed
 	 */
-	public function handle($request, Closure $next)
+	public function handle(Request $request, Closure $next): mixed
 	{
-		\Config::set('update_available',Cache::get('upstream_version'));
+		Config::set('update_available',Cache::get('upstream_version'));
 
 		return $next($request);
 	}
@@ -31,17 +33,27 @@ class CheckUpdate
 	 *
 	 * @return void
 	 */
-	public function terminate()
+	public function terminate(): void
 	{
 		Cache::remember('upstream_version',self::UPDATE_TIME,function() {
+			if (! config('pla.update.enabled',TRUE)) {
+				$return = new \stdClass;
+				$return->action = 'disabled';
+
+				return $return;
+			}
+
 			// CURL call to URL to see if there is a new version
 			Log::debug(sprintf('CU_:Checking for updates for [%s]',config('app.version')));
 
 			$client = new Client;
 
 			try {
-
-				$response = $client->request('POST',sprintf('%s/%s',self::UPDATE_SERVER,strtolower(config('app.version'))));
+				$response = $client->request(
+					method: 'POST',
+					uri: sprintf('%s/%s',self::UPDATE_SERVER,strtolower(config('app.version'))),
+					options: config('pla.update.proxy',[]),
+				);
 
 				if ($response->getStatusCode() === 200) {
 					$result = json_decode($response->getBody());
