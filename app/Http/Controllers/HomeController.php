@@ -30,7 +30,7 @@ class HomeController extends Controller
 	public function frame(Request $request,?Collection $old=NULL): \Illuminate\View\View
 	{
 		// If our index was not render from a root url, then redirect to it
-		if (($request->root().'/' !== url()->previous()) && $request->method() === 'POST')
+		if (($request->root().($request->getBasePath() ? '' : '/') !== url()->previous()) && ($request->method() === 'POST'))
 			abort(409);
 
 		$key = request_key($request->get('_key',old('_key',old('dn'))));
@@ -39,6 +39,7 @@ class HomeController extends Controller
 		$view = $old
 			? view('frame')->with('subframe',$key['cmd'])
 			: view('frames.'.$key['cmd']);
+
 		// If we are rendering a DN, rebuild our object
 		if ($key['cmd'] === 'create') {
 			$o = new Entry;
@@ -49,17 +50,19 @@ class HomeController extends Controller
 			$o->setDN($key['dn']);
 
 		} elseif ($key['dn']) {
-			// @todo Need to handle if DN is null, for example if the user's session expired and the ACLs dont let them retrieve $key['dn']
 			$o = config('server')->fetch($key['dn']);
 		}
 
 		if ($o) {
-			// @note Need to add the objectclass value first, so that subsequent attributes are aware of the objectclasses
+			// Need to add the objectclass value first, so that subsequent attributes are aware of the objectclasses
 			if ($x=old('objectclass'))
 				$o->objectclass = $x;
 
 			foreach (collect(old())->except(array_merge(EntryController::INTERNAL_POST,['dn','objectclass'])) as $attr => $value)
 				$o->{$attr} = $value;
+
+		} else {
+			$key['cmd'] = 'noop';
 		}
 
 		return match ($key['cmd']) {
@@ -80,8 +83,7 @@ class HomeController extends Controller
 				->with('page_actions',collect([
 					'create'=>($x=($o->getObjects()->except('entryuuid')->count() > 0)),
 					'copy'=>$x,
-					'delete'=>is_null($xx=($o->getObject('hassubordinates') ?: $o->getObject('numSubordinates'))?->value)
-						|| (collect($xx)->filter(fn($item)=>$item !== 'FALSE')->count() === 0),
+					'delete'=>! $o->has_children,
 					'edit'=>$x,
 					'export'=>$x,
 				]))

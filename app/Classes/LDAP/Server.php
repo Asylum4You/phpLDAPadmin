@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Exception;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
@@ -176,7 +177,7 @@ final class Server
 			}
 		}
 
-		Log::debug(sprintf('%s:- Got namingcontexts',self::LOGKEY),['namingcontexts'=>$namingcontexts]);
+		Log::debug(sprintf('%s:- Got namingcontexts',self::LOGKEY),['namingcontexts'=>$namingcontexts->join(':')]);
 
 		if (! $objects)
 			return $namingcontexts;
@@ -187,8 +188,14 @@ final class Server
 			// @note: Incase our rootDSE didnt return a namingcontext, we'll have no base DNs
 			foreach ($namingcontexts as $dn) {
 				$o = self::get($dn)->read()->find($dn);
-				$o->setBase();
-				$result->push($o);
+
+				if ($o) {
+					$o->setBase();
+					$result->push($o);
+
+				} else {
+					Log::alert(sprintf('%s:! DN [%s] was not found for [%s]',self::LOGKEY,$dn,Auth::user()?->getDn ?: __('Anonymous')));
+				}
 			}
 
 			return $result->filter()->sort(fn($item)=>$item->sort_key);
@@ -266,7 +273,7 @@ final class Server
 				->read()
 				->firstOrFail();
 
-			Log::debug(sprintf('%s:Fetched rootDSE ',self::LOGKEY),['rootDSE'=>$rootdse]);
+			Log::debug(sprintf('%s:Fetched rootDSE',self::LOGKEY),['rootDSE'=>$rootdse]);
 		}
 
 		return $rootdse;
@@ -287,6 +294,7 @@ final class Server
 			->get(
 				dn: $dn,
 				attrs: array_merge($attrs,[
+					'numsubordinates',	// Needed for the tree to know if an entry has children
 					'hassubordinates',	// Needed for the tree to know if an entry has children
 					'c'					// Needed for the tree to show icons for countries
 				]))
@@ -325,6 +333,22 @@ final class Server
 		Log::debug(sprintf('%s:= Fetched [%s]',self::LOGKEY,$dn),['dn'=>$dn]);
 
 		return $result;
+	}
+
+	/**
+	 * Get the baseDN for a given DN
+	 *
+	 * @param string $dn
+	 * @return Entry
+	 */
+	public function get_base(string $dn): Entry
+	{
+		foreach (self::baseDNs() as $base) {
+			if (\Str::endsWith($dn,$base->getDn()))
+				break;
+		}
+
+		return $base;
 	}
 
 	/**
@@ -571,13 +595,13 @@ final class Server
 		return Arr::get($this->rootDSE->subschemasubentry,0);
 	}
 
-	public function subordinates(string $dn,array $attrs=['dn']): ?LDAPCollection
+	public function subordinates(string $dn,array $attrs=['dn'],bool $containers=TRUE): ?LDAPCollection
 	{
 		return $this
 			->get(
 				dn: $dn,
 				attrs: array_merge($attrs,[]))
-			->rawFilter('(hassubordinates=TRUE)')
+			->rawFilter(sprintf('(hassubordinates=%s)',$containers ? 'TRUE' : 'FALSE'))
 			->search()
 			->get() ?: NULL;
 	}

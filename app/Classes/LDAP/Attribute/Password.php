@@ -7,15 +7,18 @@ use Illuminate\Support\Collection;
 
 use App\Classes\LDAP\Attribute;
 use App\Classes\Template;
+use App\Interfaces\MD5Updates as MD5Interface;
 use App\Ldap\Entry;
 use App\Traits\MD5Updates;
 
 /**
  * Represents an attribute whose values are passwords
  */
-final class Password extends Attribute
+final class Password extends Attribute implements MD5Interface
 {
 	use MD5Updates;
+
+	private const LOGKEY = 'AP-';
 
 	public const obfuscate = '****************';
 
@@ -25,7 +28,7 @@ final class Password extends Attribute
 	private const password_helpers = 'Classes/LDAP/Attribute/Password';
 	public const commands = 'App\\Classes\\LDAP\\Attribute\\Password\\';
 
-	private static function helpers(): Collection
+	protected static function helpers(): Collection
 	{
 		$helpers = collect();
 
@@ -52,9 +55,13 @@ final class Password extends Attribute
 	public static function hash(string $password): ?Attribute\Password\Base
 	{
 		$m = [];
-		preg_match('/^{([A-Z0-9]+)}(.*)$/',$password,$m);
+		preg_match('/^{([a-zA-Z0-9]+)}(.*)$/',$password,$m);
 
-		$hash = \Arr::get($m,1,'*clear*');
+		$hash = strtoupper($x=\Arr::get($m,1,'*clear*'));
+
+		// If our hash in the password is not in upper case, then convert it, as we use uppercase hashes to find the right class
+		if ($hash !== $x)
+			$password = preg_replace('/^{'.$x.'}/','{'.$hash.'}',$password);
 
 		if (($potential=static::helpers()->filter(fn($hasher)=>str_starts_with($hasher::key,$hash)))->count() > 1) {
 			foreach ($potential as $item) {
@@ -62,10 +69,14 @@ final class Password extends Attribute
 					return new $item;
 			}
 
-			throw new \Exception(sprintf('Couldnt figure out a password hash for %s',$password));
+			// If we get here, we'll treat it as clear text
+			\Log::alert(sprintf('%s:? Couldnt figure out a password hash for %s, assuming CLEAR',self::LOGKEY,$password));
+			return new Attribute\Password\Clear;
 
+		// No Password type candidates, we'll treat it as clear text
 		} elseif (! $potential->count()) {
-			throw new \Exception(sprintf('Couldnt figure out a password hash for %s',$password));
+			\Log::alert(sprintf('%s:? Couldnt figure out a password hash for %s, no candidates, assuming CLEAR',self::LOGKEY,$password));
+			return new Attribute\Password\Clear;
 		}
 
 		return new ($potential->pop());
@@ -82,20 +93,20 @@ final class Password extends Attribute
 		return ($helpers=static::helpers())->has($id) ? new ($helpers->get($id)) : NULL;
 	}
 
-	public function render(string $attrtag,int $index,bool $edit=FALSE,bool $editable=FALSE,bool $new=FALSE,bool $updated=FALSE,?Template $template=NULL): View
+	public function render(string $attrtag,int $index,?View $view=NULL,bool $edit=FALSE,bool $editable=FALSE,bool $new=FALSE,bool $updated=FALSE,?Template $template=NULL): View
 	{
-		return view('components.attribute.value.password')
-			->with('o',$this)
-			->with('dotkey',$dotkey=$this->dotkey($attrtag,$index))
-			->with('value',$this->values->dot()->get($dotkey))
-			->with('edit',$edit)
-			->with('editable',$editable)
-			->with('new',$new)
-			->with('attrtag',$attrtag)
-			->with('index',$index)
-			->with('updated',$updated)
-			->with('template',$template)
-			->with('helpers',static::helpers()->map(fn($item,$key)=>['id'=>$key,'value'=>$key])->sort());
+		return parent::render(
+			attrtag: $attrtag,
+			index: $index,
+			view: view('components.attribute.value.password')
+				->with('helpers',static::helpers()
+					->map(fn($item,$key)=>['id'=>$key,'value'=>$key])
+					->sort()),
+			edit: $edit,
+			editable: $editable,
+			new: $new,
+			updated: $updated,
+			template: $template);
 	}
 
 	public function render_item_old(string $dotkey): ?string

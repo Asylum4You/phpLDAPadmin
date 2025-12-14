@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Collection;
@@ -46,14 +45,14 @@ class AjaxController extends Controller
 
 		Log::debug(sprintf('%s:Query [%s]',self::LOGKEY,$dn));
 
-		return (config('server'))
+		return config('server')
 			->children($dn)
 			->transform(fn($item)=>
 				[
 					'title'=>$item->getRdn(),
 					'item'=>$item->getDNSecure(),
 					'icon'=>$item->icon(),
-					'lazy'=>Arr::get($item->getAttribute('hassubordinates'),0) == 'TRUE',
+					'lazy'=>$item->has_children,
 					'tooltip'=>$item->getDn(),
 				])
 			->prepend(
@@ -79,6 +78,25 @@ class AjaxController extends Controller
 					: []
 			)
 			->filter()
+			->values();
+	}
+
+	/**
+	 * Return a list of elegible members for a groupOfNames
+	 *
+	 * @param Request $request
+	 * @return Collection
+	 */
+	public function member_member(Request $request): Collection
+	{
+		// Find the base that the request is
+		$base = config('server')
+			->get_base(Crypt::decryptString($request->dn));
+
+		return config('server')
+			->subordinates($base->getDN(),['dn'],FALSE)
+			->map(fn($item)=>$item->getDn())
+			->diff($request->existing)
 			->values();
 	}
 
@@ -112,16 +130,22 @@ class AjaxController extends Controller
 	/**
 	 * Return the required and additional attributes for an object class
 	 *
+	 * @param Request $request
 	 * @param string $objectclass
 	 * @return array
 	 */
-	public function schema_objectclass_attrs(string $objectclass): array
+	public function schema_objectclass_attrs(Request $request,string $objectclass): array
 	{
 		$oc = config('server')->schema('objectclasses',$objectclass);
+		$existing = $request->get('attrs',[]);
 
 		return [
-			'must' => $oc->getMustAttrs()->pluck('name'),
-			'may' => $oc->getMayAttrs()->pluck('name'),
+			'must' => $oc->getMustAttrs()
+				->filter(fn($item)=>! $item->names->intersect($existing)->count())
+				->pluck('name'),
+			'may' => $oc->getMayAttrs()
+				->filter(fn($item)=>! $item->names->intersect($existing)->count())
+				->pluck('name'),
 		];
 	}
 

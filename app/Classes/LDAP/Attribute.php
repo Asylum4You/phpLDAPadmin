@@ -36,6 +36,9 @@ class Attribute implements \Countable, \ArrayAccess
 	// The objectclasses of the entry that has this attribute
 	protected(set) Collection $oc;
 
+	/** @var bool Is this attribute edited via a modal */
+	protected(set) bool $modal_editable = FALSE;
+
 	protected const CERTIFICATE_ENCODE_LENGTH = 76;
 
 	// If rendering is done in a table, with a <tr> for each value
@@ -58,7 +61,7 @@ class Attribute implements \Countable, \ArrayAccess
 		$this->dn = $dn;
 		$this->values = collect($values)
 			->map(function($item) { if (is_array($item)) asort($item); return $item; });
-		$this->values_old = clone $this->values;
+		$this->values_old = (clone $this->values)->filter(fn($item)=>count($item));
 
 		$this->schema = config('server')
 			->schema('attributetypes',$name);
@@ -132,7 +135,9 @@ class Attribute implements \Countable, \ArrayAccess
 
 	public function __toString(): string
 	{
-		return $this->values->dot()->join("\n");
+		return $this->values
+			->dot()
+			->join("\n");
 	}
 
 	/* INTERFACE */
@@ -168,6 +173,13 @@ class Attribute implements \Countable, \ArrayAccess
 		// We cannot clear values using array syntax
 	}
 
+	/* STATIC METHODS */
+
+	protected static function helpers(): Collection
+	{
+		return collect();
+	}
+
 	/* METHODS */
 
 	public function addValue(string $tag,array $values): void
@@ -177,7 +189,7 @@ class Attribute implements \Countable, \ArrayAccess
 				$tag,
 				array_unique(
 					array_filter(
-						array_merge($this->values->get($tag,[]),$values))));
+						array_merge($this->values->get($tag,[]),$values),fn($item)=>! is_null($item))));
 	}
 
 	/**
@@ -229,6 +241,16 @@ class Attribute implements \Countable, \ArrayAccess
 	}
 
 	/**
+	 * Need to allow for post input that might have helper keys, which affects validation
+	 *
+	 * @return bool
+	 */
+	public function hasHelper(): bool
+	{
+		return $this->helpers()->count() > 0;
+	}
+
+	/**
 	 * Return the hints about this attribute, ie: RDN, Required, etc
 	 *
 	 * @return Collection
@@ -261,7 +283,7 @@ class Attribute implements \Countable, \ArrayAccess
 	 */
 	public function isDirty(): bool
 	{
-		return (($a=$this->values_old->dot()->filter())->keys()->count() !== ($b=$this->values->dot()->filter())->keys()->count())
+		return (($a=$this->values_old->dot()->filter(fn($item)=>is_array($item) ? count($item) : ! is_null($item)))->keys()->count() !== ($b=$this->values->dot()->filter(fn($item)=>! is_null($item)))->keys()->count())
 			|| ($a->count() !== $b->count())
 			|| ($a->diff($b)->count() !== 0);
 	}
@@ -300,6 +322,7 @@ class Attribute implements \Countable, \ArrayAccess
 	 *
 	 * @param string $attrtag Attribute tag for the value being rendered
 	 * @param int $index Index of a multivalue attribute being rendered
+	 * @param View|null $view View to use for this attribute
 	 * @param bool $edit Render an edit form
 	 * @param bool $editable Render the item as readonly; however, JavaScript can make it editable
 	 * @param bool $new Is the rendered attribute new (used to set border-focus)
@@ -307,21 +330,20 @@ class Attribute implements \Countable, \ArrayAccess
 	 * @param Template|null $template The template this value is being rendered with
 	 * @return View
 	 */
-	public function render(string $attrtag,int $index,bool $edit=FALSE,bool $editable=FALSE,bool $new=FALSE,bool $updated=FALSE,?Template $template=NULL): View
+	public function render(string $attrtag,int $index,?View $view=NULL,bool $edit=FALSE,bool $editable=FALSE,bool $new=FALSE,bool $updated=FALSE,?Template $template=NULL): View
 	{
 		$dotkey = $this->dotkey($attrtag,$index);
 
 		// @note Internal attributes cannot be edited
 		if ($this->is_internal)
-			return view('components.attribute.value.internal')
+			return ($view ?: view('components.attribute.value.internal'))
 				->with('o',$this)
 				->with('value',$this->render_item_new($dotkey));
 
-		$view = view()->exists($x='components.attribute.value.'.$this->name_lc)
-			? view($x)
-			: view('components.attribute.value');
-
-		return $view
+		return ($view ?:
+			(view()->exists($x='components.attribute.value.'.$this->name_lc)
+				? view($x)
+				: view('components.attribute.value')))
 			->with('o',$this)
 			->with('dotkey',$dotkey)
 			->with('value',$this->render_item_new($dotkey))

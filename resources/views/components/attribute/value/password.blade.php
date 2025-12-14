@@ -3,14 +3,19 @@
 @use(App\Ldap\Entry)
 
 <div class="input-group has-validation">
-	@if(! $o->isDirty())
+	@if($value && (! $o->isDirty()))
 		<input type="hidden" name="{{ $o->name_lc }}[{{ $attrtag }}{{ Entry::TAG_MD5 }}][]" value="{{ md5($value) }}">
 	@endif
 
-	<x-select class="mb-1"
+	<x-select
 		id="userpassword_hash_{{$index}}_{{ $template?->name }}"
 		name="{{ $o->name_lc }}[{{ $attrtag }}{{ Entry::TAG_HELPER }}][]"
-		:value="old($o->name_lc.'.'.$attrtag.Entry::TAG_HELPER.'.'.$index,$o->hash($o->values->dot()->get($dotkey) ?: '')->id())"
+		@class(['mb-1','no-edit'=>(! $editable)])
+		:value="old($o->name_lc.'.'.$attrtag.Entry::TAG_HELPER.'.'.$index,
+			((! $o->values->dot()->get($dotkey)) && ($x=$template?->attribute($o->name_lc)?->get('helper')))
+				? $x
+				: $o->hash($o->values->dot()->get($dotkey) ?: '')
+			->id())"
 		:options="$helpers"
 		allowclear="false"
 		:disabled="! $edit"/>

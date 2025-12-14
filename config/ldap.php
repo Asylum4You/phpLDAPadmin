@@ -31,8 +31,8 @@ return [
 		'ldap' => [
 			'name' => env('LDAP_NAME','LDAP Server'),
 			'hosts' => [env('LDAP_HOST', '127.0.0.1')],
-			'username' => env('LDAP_USERNAME', 'cn=user,dc=local,dc=com'),
-			'password' => env('LDAP_PASSWORD', 'secret'),
+			'username' => env('LDAP_USERNAME', ''),
+			'password' => env('LDAP_PASSWORD', ''),
 			'port' => env('LDAP_PORT', 389),
 			'timeout' => env('LDAP_TIMEOUT', 5),
 			'use_ssl' => env('LDAP_SSL', false),
@@ -46,8 +46,8 @@ return [
 		'ldaps' => [
 			'name' => env('LDAP_NAME','LDAPS Server'),
 			'hosts' => [env('LDAP_HOST', '127.0.0.1')],
-			'username' => env('LDAP_USERNAME', 'cn=user,dc=local,dc=com'),
-			'password' => env('LDAP_PASSWORD', 'secret'),
+			'username' => env('LDAP_USERNAME', ''),
+			'password' => env('LDAP_PASSWORD', ''),
 			'port' => env('LDAP_PORT', 636),
 			'timeout' => env('LDAP_TIMEOUT', 5),
 			'use_ssl' => env('LDAP_SSL', true),
@@ -61,8 +61,8 @@ return [
 		'starttls' => [
 			'name' => env('LDAP_NAME','LDAP-TLS Server'),
 			'hosts' => [env('LDAP_HOST', '127.0.0.1')],
-			'username' => env('LDAP_USERNAME', 'cn=user,dc=local,dc=com'),
-			'password' => env('LDAP_PASSWORD', 'secret'),
+			'username' => env('LDAP_USERNAME', ''),
+			'password' => env('LDAP_PASSWORD', ''),
 			'port' => env('LDAP_PORT', 389),
 			'timeout' => env('LDAP_TIMEOUT', 5),
 			'use_ssl' => env('LDAP_SSL', false),
@@ -145,7 +145,7 @@ return [
 			'gidnumber.*.*' => [
 				'nullable',
 				'integer',
-				'max:65535'
+				'min:1'
 			]
 		],
 		'mail' => [
@@ -165,7 +165,7 @@ return [
 			],
 			sprintf('userpassword.%s%s.*',\App\Ldap\Entry::TAG_NOTAG,\App\Ldap\Entry::TAG_HELPER) => [
 				'nullable',
-				'min:4'
+				'min:3'
 			],
 			sprintf('userpassword.%s.*',\App\Ldap\Entry::TAG_NOTAG) => [
 				'nullable',
@@ -180,7 +180,7 @@ return [
 			'uidnumber.*.*' => [
 				'nullable',
 				'integer',
-				'max:65535'
+				'min:1'
 			]
 		],
 		'usercertificate' => [

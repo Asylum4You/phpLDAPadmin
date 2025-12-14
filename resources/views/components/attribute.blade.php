@@ -48,22 +48,24 @@
 
 					@if((! $o->is_internal) && (! $template))
 						<div class="btn-group-sm nav btn-group" role="group">
-							@if((! $o->no_attr_tags) && ($has_default=$o->langtags->contains(Entry::TAG_NOTAG)))
-								<span data-bs-toggle="tab" href="#langtag-{{ $o->name_lc }}-{{ Entry::TAG_NOTAG }}" @class(['btn','btn-outline-light','border-dark-subtle','active','addable d-none'=>$o->langtags->count() === 1])>
-									<i class="fas fa-fw fa-border-none" data-bs-toggle="tooltip" data-bs-custom-class="custom-tooltip" aria-label="No Lang Tag" data-bs-original-title="No Lang Tag"></i>
-								</span>
-							@endif
+							@if(! $o->no_attr_tags)
+								@if($has_default=$o->langtags->contains(Entry::TAG_NOTAG))
+									<button type="button" data-bs-toggle="tab" href="#langtag-{{ $o->name_lc }}-{{ Entry::TAG_NOTAG }}" @class(['btn','btn-outline-light','border-dark-subtle','active','addable d-none'=>$o->langtags->count() === 1])>
+										<i class="fas fa-fw fa-border-none" data-bs-toggle="tooltip" data-bs-custom-class="custom-tooltip" aria-label="No Lang Tag" data-bs-original-title="No Lang Tag"></i>
+									</button>
+								@endif
 
-							@if((! $o->no_attr_tags) && (! $o->is_rdn) && (! $template))
-								<span data-bs-toggle="tab" href="#langtag-{{ $o->name_lc }}-+" class="bg-primary-subtle btn btn-outline-primary border-primary addable d-none">
-									<i class="fas fa-fw fa-plus text-dark" data-bs-toggle="tooltip" data-bs-custom-class="custom-tooltip" aria-label="Add Lang Tag" data-bs-original-title="Add Lang Tag"></i>
-								</span>
+								@if((! $o->is_rdn) && (! $template))
+									<button type="button" data-bs-toggle="tab" href="#langtag-{{ $o->name_lc }}-+" class="bg-primary-subtle btn btn-outline-primary border-primary addable d-none">
+										<i class="fas fa-fw fa-plus text-dark" data-bs-toggle="tooltip" data-bs-custom-class="custom-tooltip" aria-label="Add Lang Tag" data-bs-original-title="Add Lang Tag"></i>
+									</button>
+								@endif
 							@endif
 
 							@foreach(($langtags=$o->langtags->filter(fn($item)=>$item !== Entry::TAG_NOTAG)) as $langtag)
-								<span data-bs-toggle="tab" href="#langtag-{{ $o->name_lc }}-{{ $langtag }}" @class(['btn','btn-outline-light','border-dark-subtle','active'=>(! isset($has_default)) || (! $has_default) ])>
+								<button type="button" data-bs-toggle="tab" href="#langtag-{{ $o->name_lc }}-{{ $langtag }}" @class(['btn','btn-outline-light','border-dark-subtle','active'=>(! isset($has_default)) || (! $has_default) ])>
 									<span class="f16" data-bs-toggle="tooltip" data-bs-custom-class="custom-tooltip" aria-label="{{ $langtag }}" data-bs-original-title="{{ ($x=preg_replace('/'.Entry::LANG_TAG_PREFIX.'/','',$langtag)) }}"><i class="flag {{ $x }}"></i></span>
-								</span>
+								</button>
 							@endforeach
 						</div>
 					@endif
@@ -82,7 +84,7 @@
 					@default
 						@switch(get_class($o))
 							@case(RDN::class)
-								<x-attribute.rdn :o="$o" :edit="$edit"/>
+								<x-attribute.rdn :o="$o" :edit="$edit" :template="$template"/>
 								@break
 
 							@default
@@ -101,6 +103,12 @@
 		<script type="text/javascript">
 			$('#{{ $o->name_lc }}').on('change',function() {
 				{!! $x->join('') !!}
+			});
+
+			$('attribute').on('change',function() {
+				if (rdn_attr === $(this).attr('id')) {
+					$('#rdn_value').val($(this).find('input').val());
+				}
 			});
 		</script>
 		<!-- END: ONCHANGE PROCESSING {{ $o->name }} -->

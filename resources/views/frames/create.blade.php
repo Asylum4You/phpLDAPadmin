@@ -1,6 +1,6 @@
 @use(App\Ldap\Entry)
 
-@extends('layouts.dn')
+@extends('layouts.frame')
 
 @section('page_title')
 	@include('fragment.dn.header')
@@ -41,6 +41,7 @@
 												->sortBy(fn($item)=>$item->name_lc)
 												->map(fn($item)=>['id'=>$item->name,'value'=>$item->name])"
 											allowclear="true"
+											:edit="true"
 										/>
 									</div>
 
@@ -57,6 +58,7 @@
 												:options="$o->templates
 													->map(fn($item,$key)=>['id'=>$key,'value'=>$item->title])"
 												allowclear="true"
+												:edit="true"
 											/>
 										</div>
 									@endif
@@ -92,12 +94,18 @@
 	</div>
 @endsection
 
+@section('page-modals')
+	<x-page-modal/>
+@endsection
+
 @section('page-scripts')
 	<script type="text/javascript">
-		var rdn_attr;
+		var dn = '{{ Crypt::encryptString($container) }}';
 
-		$(document).ready(function() {
-			@if($step === 1)
+		@if($step === 1)
+			var rdn_attr;
+
+			$(document).ready(function() {
 				$('#objectclass').on('select2:open',function(){
 					$('#template').val(null).trigger('change');
 				});
@@ -105,7 +113,7 @@
 				$('#template').on('select2:open',function(){
 					$('#objectclass').val(null).trigger('change');
 				})
-			@endif
-		});
+			});
+		@endif
 	</script>
 @append

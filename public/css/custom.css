@@ -16,7 +16,7 @@ attribute#userpassword .input-group > .select2-container--bootstrap-5 .select2-s
 }
 
 /* render the structural inside the input box */
-attribute#objectclass .input-group-end:not(input.form-control) {
+attribute .input-group-end:not(input.form-control) {
 	position: absolute;
 	right: 1em;
 	top: 0.5em;
@@ -97,4 +97,48 @@ ul.square {
 /* Fix select2 selections when set up with d-none */
 select[class*="d-none"] + span.select2 {
 	display: none;
+}
+
+/* Member Modal */
+div.modal .modal-body {
+	.member-box {
+		float: left;
+		width: 45%;
+		label {
+			font-weight: bold;
+			padding-bottom: 5px;
+		}
+		select {
+			height: 25em;
+			padding: 0;
+			option {
+				padding: 4px 10px 4px 10px;
+			}
+			option:hover {
+				background: var(--bs-light);
+			}
+		}
+	 }
+
+	.select-arrows {
+		float: left;
+		width: 10%;
+		padding-top: 5em;
+		input {
+			width: 70%;
+			margin-bottom: 5px;
+		}
+	}
+}
+
+/* Sidebar resize */
+aside .draghandle {
+	position: absolute;
+	z-index: 100;
+	width: 8px;
+	top: 0;
+	bottom: 0;
+	right: 0;
+	cursor: col-resize;
+	float: right;
 }

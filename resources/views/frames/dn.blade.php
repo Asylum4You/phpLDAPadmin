@@ -1,4 +1,4 @@
-@extends('layouts.dn')
+@extends('layouts.frame')
 
 @section('page_title')
 	@include('fragment.dn.header')
@@ -16,16 +16,16 @@
 					@endif
 					@if($page_actions->get('export'))
 						<li>
-							<span id="entry-export" data-bs-toggle="modal" data-bs-target="#page-modal">
-								<button class="btn btn-outline-dark p-1 m-1" data-bs-toggle="tooltip" data-bs-placement="bottom" title="@lang('Export')"><i class="fas fa-fw fa-download fs-5"></i></button>
-							</span>
+							<button type="button" class="btn btn-outline-dark p-1 m-1" name="entry-export" data-bs-toggle="modal" data-bs-target="#page-modal">
+								<span data-bs-toggle="tooltip" data-bs-placement="bottom" title="@lang('Export')"><i class="fas fa-fw fa-download fs-5"></i></span>
+							</button>
 						</li>
 					@endif
 					@if($page_actions->get('copy'))
 						<li>
-							<span id="entry-copy-move" data-bs-toggle="modal" data-bs-target="#page-modal">
-								<button class="btn btn-outline-dark p-1 m-1" data-bs-toggle="tooltip" data-bs-placement="bottom" title="@lang('Copy/Move')"><i class="fas fa-fw fa-copy fs-5"></i></button>
-							</span>
+							<button type="button" class="btn btn-outline-dark p-1 m-1" name="entry-copy-move" data-bs-toggle="modal" data-bs-target="#page-modal">
+								<span data-bs-toggle="tooltip" data-bs-placement="bottom" title="@lang('Copy/Move')"><i class="fas fa-fw fa-copy fs-5"></i></span>
+							</button>
 						</li>
 					@endif
 					@if($page_actions->get('edit'))
@@ -35,9 +35,9 @@
 					@endif
 					@if($page_actions->get('delete'))
 						<li>
-							<span id="entry-delete" data-bs-toggle="modal" data-bs-target="#page-modal">
-								<button class="btn btn-outline-danger p-1 m-1" data-bs-custom-class="custom-tooltip-danger" data-bs-toggle="tooltip" data-bs-placement="bottom" title="@lang('Delete Entry')"><i class="fas fa-fw fa-trash-can fs-5"></i></button>
-							</span>
+							<button type="button" class="btn btn-outline-danger p-1 m-1" name="entry-delete" data-bs-toggle="modal" data-bs-target="#page-modal">
+								<span data-bs-custom-class="custom-tooltip-danger" data-bs-toggle="tooltip" data-bs-placement="bottom" title="@lang('Delete Entry')"><i class="fas fa-fw fa-trash-can fs-5"></i></span>
+							</button>
 						</li>
 					@endif
 				</ul>
@@ -90,7 +90,7 @@
 								<div class="tab-content">
 									@foreach($o->templates as $template)
 										<div @class(['tab-pane','active'=>$loop->index === 0]) id="template-{{ $template->name }}" role="tabpanel">
-											@include('fragment.template.dn',['template'=>$template,'updated'=>$updated])
+											@include('fragment.template.attrs',['template'=>$template,'updated'=>$updated])
 										</div>
 									@endforeach
 
@@ -136,19 +136,18 @@
 @endsection
 
 @section('page-modals')
-	<!-- Frame Modals -->
-	<div class="modal fade" id="page-modal" tabindex="-1" aria-labelledby="label" aria-hidden="true">
-		<div class="modal-dialog modal-lg modal-fullscreen-lg-down">
-			<div class="modal-content"></div>
-		</div>
-	</div>
+	<x-page-modal/>
 @endsection
 
 @section('page-scripts')
 	<script type="text/javascript">
 		var dn = '{{ $o->getDNSecure() }}';
+		var pagemodal_eventhandled = false;
 
 		function editmode() {
+			// Switch focus to the default templte
+			$('span[href="#template-default"]').click();
+
 			$('#dn-edit input[name="dn"]').val(dn);
 
 			$('form#dn-edit').attr('readonly',false);
@@ -159,29 +158,31 @@
 				.attr('disabled',true);
 
 			// Find all input items and turn off readonly
-			$('input.form-control').each(function() {
-				if ($(this)[0].name.match(/^objectclass/))
-					return;
-
+			$('input.form-control').not('.modal_edit, .no-edit').each(function() {
 				$(this).attr('readonly',false);
 			});
 
 			// Find all input items and turn off readonly
-			$('textarea.form-control').each(function() {
+			$('textarea.form-control').not('.no-edit').each(function() {
 				$(this).attr('readonly',false);
 			});
 
-			// Our password type
-			$('attribute#userpassword .form-select').each(function() {
+			// Any select areas that are disabled
+			$('attribute .form-select').not('.no-edit').each(function() {
 				$(this).prop('disabled',false);
-			})
+			});
+
+			// Any attribute select areas
+			$('#newattr.form-select').each(function() {
+				$(this).prop('disabled',false);
+			});
 
 			// Objectclasses that can be removed
 			$('.input-group-end i.d-none').removeClass('d-none');
 
 			$('.row.d-none').removeClass('d-none');
-			$('span.addable.d-none').removeClass('d-none');
-			$('span.deletable.d-none').removeClass('d-none');
+			$('button.addable.d-none').removeClass('d-none');
+			$('button.deletable.d-none').removeClass('d-none');
 
 			@if($o->getMissingAttributes()->count())
 				$('#newattr-select.d-none').removeClass('d-none');
@@ -189,9 +190,10 @@
 		}
 
 		$(document).ready(function() {
-			$('button[id=entry-create]').on('click',function(item) {
-				location.replace('/#{{ Crypt::encryptString(sprintf('*%s|%s','create',$dn)) }}');
-				location.reload();
+			$('button[id=entry-create]').on('click',function() {
+				location.replace(web_base+'/#{{ Crypt::encryptString(sprintf('*%s|%s','create',$dn)) }}');
+				if (web_base_path === '/')
+					location.reload();
 			});
 
 			$('button[id=entry-edit]').on('click',function(item) {
@@ -204,26 +206,26 @@
 			});
 
 			$('#page-modal').on('shown.bs.modal',function(item) {
+				// If the event was already handled, nothing to do here
+				if (pagemodal_eventhandled)
+					return;
+
 				var that = $(this).find('.modal-content');
 
-				switch ($(item.relatedTarget).attr('id')) {
+				switch ($(item.relatedTarget).attr('name')) {
 					case 'entry-copy-move':
 						$.ajax({
 							method: 'GET',
 							url: '{{ url('modal/copy-move') }}/'+dn,
 							dataType: 'html',
 							cache: false,
-							beforeSend: function() {
-								that.empty().append('<span class="p-3"><i class="fas fa-3x fa-spinner fa-pulse"></i></span>');
-							},
-							success: function(data) {
-								that.empty().html(data);
-							},
-							error: function(e) {
-								if (e.status !== 412)
-									alert('That didnt work? Please try again....');
-							},
-						});
+							beforeSend: before_send_spinner(that)
+
+						}).done(function(html) {
+							that.empty().append(html);
+
+						}).fail(ajax_error);
+
 						break;
 
 					case 'entry-delete':
@@ -232,17 +234,13 @@
 							url: '{{ url('modal/delete') }}/'+dn,
 							dataType: 'html',
 							cache: false,
-							beforeSend: function() {
-								that.empty().append('<span class="p-3"><i class="fas fa-3x fa-spinner fa-pulse"></i></span>');
-							},
-							success: function(data) {
-								that.empty().html(data);
-							},
-							error: function(e) {
-								if (e.status !== 412)
-									alert('That didnt work? Please try again....');
-							},
-						});
+							beforeSend: before_send_spinner(that)
+
+						}).done(function(html) {
+							that.empty().append(html);
+
+						}).fail(ajax_error);
+
 						break;
 
 					case 'entry-export':
@@ -251,35 +249,27 @@
 							url: '{{ url('modal/export') }}/'+dn,
 							dataType: 'html',
 							cache: false,
-							beforeSend: function() {
-								that.empty().append('<span class="p-3"><i class="fas fa-3x fa-spinner fa-pulse"></i></span>');
-							},
-							success: function(data) {
-								that.empty().html(data);
+							beforeSend: before_send_spinner(that)
 
-								that = $('#entry_export');
+						}).done(function(html) {
+							that.empty().html(html);
 
-								$.ajax({
-									method: 'GET',
-									url: '{{ url('entry/export') }}/'+dn,
-									cache: false,
-									beforeSend: function() {
-										that.empty().append('<span class="p-3"><i class="fas fa-3x fa-spinner fa-pulse"></i></span>');
-									},
-									success: function(data) {
-										that.empty().append(data);
-									},
-									error: function(e) {
-										if (e.status !== 412)
-											alert('That didnt work? Please try again....');
-									},
-								})
-							},
-							error: function(e) {
-								if (e.status !== 412)
-									alert('That didnt work? Please try again....');
-							},
-						})
+							that = $('#entry_export');
+
+							$.ajax({
+								method: 'GET',
+								url: '{{ url('entry/export') }}/'+dn,
+								dataType: 'html',
+								cache: false,
+								beforeSend: before_send_spinner(that)
+
+							}).done(function(html) {
+								that.empty().append(html);
+
+							}).fail(ajax_error);
+
+						}).fail(ajax_error);
+
 						break;
 
 					case 'entry-rename':
@@ -288,49 +278,41 @@
 							url: '{{ url('modal/rename') }}/'+dn,
 							dataType: 'html',
 							cache: false,
-							beforeSend: function() {
-								that.empty().append('<span class="p-3"><i class="fas fa-3x fa-spinner fa-pulse"></i></span>');
-							},
-							success: function(data) {
-								that.empty().html(data);
-							},
-							error: function(e) {
-								if (e.status !== 412)
-									alert('That didnt work? Please try again....');
-							},
-						});
+							beforeSend: before_send_spinner(that)
+
+						}).done(function(html) {
+							that.empty().append(html);
+
+						}).fail(ajax_error);
+
+						break;
+
+					case 'entry-userpassword-check':
+						$.ajax({
+							method: 'GET',
+							url: '{{ url('modal/userpassword-check') }}/'+dn,
+							dataType: 'html',
+							cache: false,
+							beforeSend: before_send_spinner(that)
+
+						}).done(function(html) {
+							that.empty().append(html);
+
+						}).fail(ajax_error);
+
 						break;
 
 					default:
-						switch ($(item.relatedTarget).attr('name')) {
-							case 'entry-userpassword-check':
-								$.ajax({
-									method: 'GET',
-									url: '{{ url('modal/userpassword-check') }}/'+dn,
-									dataType: 'html',
-									cache: false,
-									beforeSend: function() {
-										that.empty().append('<span class="p-3"><i class="fas fa-3x fa-spinner fa-pulse"></i></span>');
-									},
-									success: function(data) {
-										that.empty().html(data);
-									},
-									error: function(e) {
-										if (e.status !== 412)
-											alert('That didnt work? Please try again....');
-									},
-								})
-								break;
-
-							default:
-								console.log('No action for button:'+$(item.relatedTarget).attr('id'));
-						}
+						console.log('No action for button:'+$(item.relatedTarget).attr('name'));
 				}
 			});
 
 			$('#page-modal').on('hide.bs.modal',function() {
 				// Clear any select ranges that occurred while the modal was open
 				document.getSelection().removeAllRanges();
+
+				// Empty the modal so we dont have a flicker if we open a new one
+				$(this).find('.modal-content').empty();
 			});
 
 			@if(old())

@@ -5,13 +5,14 @@
 			@class([
 				'is-invalid'=>($e=$errors->get($o->name_lc.'.'.$langtag.'.'.$loop->index)),
 				'mb-1',
+				'no-edit'=>(! $editable ?? FALSE),
 				'border-focus'=>! $o->tagValuesOld($langtag)->contains($value)])
 			id="{{ $o->name_lc }}_{{$loop->index}}{{$template?->name ?: ''}}"
 			name="{{ $o->name_lc }}[{{ $langtag }}][]"
 			:value="$value ?: $template->attributeValue($o->name_lc)"
 			:options="$template->attributeOptions($o->name_lc)"
 			allowclear="true"
-			:disabled="! $edit"/>
+			:edit="$edit"/>
 
 		<x-form.invalid-feedback :errors="$e"/>
 	@endforeach

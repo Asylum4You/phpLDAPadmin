@@ -11,19 +11,17 @@ function expandChildren(node) {
 	}
 }
 
-function getNode(item) {
+// Render a sub page via an ajax method
+function get_frame(item) {
 	$.ajax({
-		url: '/frame',
+		url: web_base+'/frame',
 		method: 'POST',
 		data: { _key: item },
 		dataType: 'html',
 		beforeSend: function() {
-			content = $('.main-content')
-				.contents();
-
-			$('.main-content')
-				.empty()
-				.append('<div class="fa-3x"><i class="fas fa-spinner fa-pulse"></i></div>');
+			// In case we want to redirect back to the original page
+			content = $('.main-content').contents();
+			before_send_spinner($('.main-content').empty());
 		}
 
 	}).done(function(html) {
@@ -37,11 +35,27 @@ function getNode(item) {
 				$('.main-content').empty().append(e.responseText);
 				break;
 			case 409:	// Not in root
-			case 419:	// Session Expired
-				location.replace('/#'+item);
-				// When the session expires, and we are in the tree, we need to force a reload
-				if (location.pathname === '/')
+				// There is an unusual problem, that location.replace() is not being replaced, when, for example:
+				// * When running in a subpath
+				// * The rendered URL has a slash on the end
+				// * The rendered page is a form, etc /entry/add, and the user clicks on the tree
+				workaround = location.href;
+				location.assign(web_base+'/#'+item);
+
+				if ((web_base_path === '/') && (location.pathname === '/'))
 					location.reload();
+
+				else if ((! location.href.match('/\/$/')) && (workaround !== location.href))
+					location.reload();
+
+				break;
+			case 419:	// Session Expired
+				workaround = location.href;
+				location.replace(web_base+'/#'+item);
+
+				if ((! location.href.match('/\/$/')) && (workaround !== location.href))
+					location.reload();
+
 				break;
 			case 500:
 			case 555:	// Missing Method
@@ -59,7 +73,7 @@ $(document).ready(function() {
 	if (typeof basedn !== 'undefined') {
 		sources = basedn;
 	} else {
-		sources = { method: 'POST', url: '/ajax/bases' };
+		sources = { method: 'POST', url: web_base+'/ajax/bases' };
 	}
 
 	// Attach the fancytree widget to an existing <div id="tree"> element
@@ -90,14 +104,19 @@ $(document).ready(function() {
 		},
 		click: function(event,data) {
 			if (data.targetType === 'title' && data.node.data.item)
-				getNode(data.node.data.item);
+				get_frame(data.node.data.item);
 		},
 		source: sources,
 		lazyLoad: function(event,data) {
 			data.result = {
 				method: 'POST',
-				url: '/ajax/children',
-				data: {_key: data.node.data.item,create: true}
+				url: web_base+'/ajax/children',
+				data: {_key: data.node.data.item,create: true},
+				error: function(e) {
+					if (e.status === 419) {	// Session Expired
+						window.location.reload();
+					}
+				}
 			};
 
 			expandChildren(data.tree.rootNode);
@@ -112,3 +131,102 @@ $(document).ready(function() {
 		}
 	});
 });
+
+// Handle our error message for .ajax() calls
+let ajax_error = function(e) {
+	alert('That didnt work? Please try again.... ('+e.status+')');
+};
+
+// Render a spinner when doing an ajax call
+function before_send_spinner(that) {
+	that.append('<span class="ps-3"><i class="fas fa-2x fa-spinner fa-spin-pulse"></i></span>');
+}
+
+// Find all values of an attribute in the form
+function attribute_values(attr,container='attribute',input='input') {
+	return $(container+'#'+attr+' '+(input === 'input' ? 'input[type=text]:not(.no-edit)' : input))
+		.map((index,element)=>$(element).val())
+		.toArray()
+}
+
+// This function will update values that are altered from a modal
+function update_from_modal(attr,modal_data) {
+	// Existing Values
+	var existing = attribute_values(attr);
+	var addition = [];
+
+	// Add New Values
+	modal_data.forEach(function (item) {
+		if (existing.indexOf(item) === -1) {
+			// Add attribute to the page
+			var active = $('form#dn-edit attribute#'+attr)
+				.find('.tab-content .tab-pane.active');
+
+			var clone = active.find('div.input-group:last')
+				.clone()
+				.appendTo(active);
+
+			clone.find('input')
+				.attr('value',item)
+				.addClass('border-focus')
+
+			addition.push(item);
+		}
+	});
+
+	// Remove Values
+	existing.forEach(function(item) {
+		if (modal_data.indexOf(item) === -1) {
+			$('form#dn-edit attribute#'+attr+' input[value="'+item+'"]')
+				.closest('div.input-group')
+				.empty();
+		}
+	});
+
+	// For new entries, there is a blank input box, we'll clear that too
+	$('form#dn-edit attribute#'+attr+' input[value=""]')
+		.closest('div.input-group')
+		.empty();
+
+	return addition;
+}
+
+/* Sidebar resize */
+var aside = $('aside.app-sidebar');
+
+$('aside .draghandle').on('mousedown',function(event) {
+	// Ignore if closed
+	if ($('.close-sidebar-btn').hasClass('is-active'))
+		return;
+
+	event.preventDefault();
+
+	window.addEventListener('mousemove',Resize,false);
+	window.addEventListener('mouseup',stopResize,false);
+})
+
+$('.close-sidebar-btn:not(is-active)').on('click',function(event) {
+	aside.css('width','');
+	$('.app-header').css('margin-left','');
+	$('main.app-main__outer').css('padding-left','');
+})
+
+function Resize(e) {
+	var mouseX = e.clientX - aside.offset().left;
+
+	if (mouseX < 250) {
+		aside.css('width','');
+		$('.app-header').css('margin-left','');
+		$('main.app-main__outer').css('padding-left','');
+
+	} else {
+		aside.css('width',mouseX+'px');
+		$('.app-header').css('margin-left',mouseX+'px');
+		$('main.app-main__outer').css('padding-left',mouseX+'px');
+	}
+}
+
+function stopResize() {
+	window.removeEventListener('mousemove',Resize,false);
+	window.removeEventListener('mouseup',stopResize,false);
+}

@@ -35,6 +35,7 @@ class Factory
 		'krbticketflags' => KrbTicketFlags::class,
 		'gidnumber' => GidNumber::class,
 		'jpegphoto' => Binary\JpegPhoto::class,
+		'member' => Member::class,
 		'modifytimestamp' => Internal\Timestamp::class,
 		'monitorcontext' => Schema\Generic::class,
 		'namingcontexts' => Schema\Generic::class,
@@ -44,6 +45,7 @@ class Factory
 		'supportedfeatures' => Schema\OID::class,
 		'supportedldapversion' => Schema\Generic::class,
 		'supportedsaslmechanisms' => Schema\Mechanisms::class,
+		'uniquemember' => Member::class,
 		'usercertificate' => Binary\Certificate::class,
 		'userpassword' => Password::class,
 	];
